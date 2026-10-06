@@ -1,0 +1,14 @@
+id: TASK-001
+title: Add email validation
+description: |
+  Add an email validation function.
+requirements:
+  - valid addresses return true
+  - malformed addresses return false
+  - add unit tests
+  - do not add external dependencies
+acceptance:
+  - tests pass
+  - no new dependencies
+  - security scan passes
+  - reviewer approves

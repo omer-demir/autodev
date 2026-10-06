@@ -1,0 +1,63 @@
+name: Governed Workspace Harness
+version: 1.0.0
+description: Versioned tool schemas and capability bindings for repository work.
+capability_catalog: { id: governance, version: 1.0.0 }
+tools:
+  - name: list_files
+    description: List a bounded page of repository files.
+    capability: repository.read
+    input_schema:
+      type: object
+      properties:
+        path: { type: string }
+        pattern: { type: string }
+        offset: { type: integer }
+        limit: { type: integer }
+  - name: search_text
+    description: Search repository text literally.
+    capability: repository.read
+    input_schema:
+      type: object
+      properties:
+        query: { type: string }
+        path: { type: string }
+        pattern: { type: string }
+        max_matches: { type: integer }
+      required: [query]
+  - name: read_file
+    description: Read a bounded UTF-8 file chunk.
+    capability: repository.read
+    input_schema:
+      type: object
+      properties:
+        path: { type: string }
+        offset: { type: integer }
+        limit: { type: integer }
+      required: [path]
+  - name: write_file
+    description: Create or replace a UTF-8 repository file.
+    capability: repository.write
+    input_schema:
+      type: object
+      properties:
+        path: { type: string }
+        content: { type: string }
+      required: [path, content]
+  - name: delete_file
+    description: Delete one repository file.
+    capability: repository.write
+    input_schema:
+      type: object
+      properties:
+        path: { type: string }
+      required: [path]
+  - name: run_command
+    description: Run a governed argument-vector test, build, dependency, or Git command.
+    capability_resolver: command-v1
+    input_schema:
+      type: object
+      properties:
+        arguments:
+          type: array
+          items: { type: string }
+      required: [arguments]

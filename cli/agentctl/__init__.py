@@ -1,0 +1,1 @@
+"""Workbench command-line client."""

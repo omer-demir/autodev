@@ -1,0 +1,10 @@
+name: rpi-review
+version: 1.0.0
+description: Review completed work against requirements and executable evidence.
+instructions: |-
+  Inspect the final diff for correctness, regressions, security impact, and accidental scope growth.
+  Compare outcomes to acceptance checks and report tests actually run, failures, limitations, and residual risk.
+  Do not describe unexecuted checks as passing.
+source:
+  format: native
+  trust: reviewed

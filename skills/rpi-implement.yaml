@@ -1,0 +1,10 @@
+name: rpi-implement
+version: 1.0.0
+description: Implement planned repository changes with immediate focused validation.
+instructions: |-
+  Make the smallest coherent edit that addresses the root cause.
+  After the first substantive edit, run the cheapest focused check that can falsify it before widening scope.
+  Keep unrelated changes intact and report blockers with their observed evidence.
+source:
+  format: native
+  trust: reviewed

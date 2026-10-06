@@ -1,0 +1,106 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    ports: ["8000:8000"]
+    environment:
+      WORKBENCH_DATABASE_URL: sqlite:////data/workbench.db
+      WORKBENCH_EVIDENCE_DIR: /data/evidence
+      WORKBENCH_WORKSPACE_DIR: /workspaces
+      WORKBENCH_DOCKER_WORKSPACE_HOST: ${PWD}/.workspaces
+      WORKBENCH_EXECUTION_MODE: real
+      WORKBENCH_MODEL_PROVIDER: ${WORKBENCH_MODEL_PROVIDER:-copilot}
+      WORKBENCH_MODEL_FALLBACK_PROVIDER: ${WORKBENCH_MODEL_FALLBACK_PROVIDER:-ollama}
+      WORKBENCH_OLLAMA_URL: http://host.docker.internal:11434
+      WORKBENCH_MODEL_NAME: ${WORKBENCH_MODEL_NAME:-auto}
+      WORKBENCH_MODEL_FALLBACK_NAME: ${WORKBENCH_MODEL_FALLBACK_NAME:-gemma4:e2b}
+      WORKBENCH_MODEL_REQUEST_TIMEOUT_SECONDS: ${WORKBENCH_MODEL_REQUEST_TIMEOUT_SECONDS:-300}
+      WORKBENCH_AGENT_TURN_TIMEOUT_SECONDS: ${WORKBENCH_AGENT_TURN_TIMEOUT_SECONDS:-1800}
+      WORKBENCH_MODEL_RECOVERY_TIMEOUT_SECONDS: ${WORKBENCH_MODEL_RECOVERY_TIMEOUT_SECONDS:-600}
+      WORKBENCH_SANDBOX_COMMAND_TIMEOUT_SECONDS: ${WORKBENCH_SANDBOX_COMMAND_TIMEOUT_SECONDS:-1800}
+      WORKBENCH_SANDBOX_PROVIDER: ${WORKBENCH_SANDBOX_PROVIDER:-docker}
+      WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT: ${WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT:-}
+      WORKBENCH_FOUNDRY_MODEL: ${WORKBENCH_FOUNDRY_MODEL:-gpt-5.4-mini}
+      WORKBENCH_MODEL_PRICING_JSON: '${WORKBENCH_MODEL_PRICING_JSON:-{}}'
+      WORKBENCH_COPILOT_HOME: /data/copilot
+      COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
+      GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
+      WORKBENCH_GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      WORKBENCH_GITHUB_OAUTH_CLIENT_ID: ${WORKBENCH_GITHUB_OAUTH_CLIENT_ID:-}
+      WORKBENCH_GITHUB_OAUTH_CLIENT_SECRET: ${WORKBENCH_GITHUB_OAUTH_CLIENT_SECRET:-}
+      WORKBENCH_WEB_APP_URL: http://localhost:3000
+      WORKBENCH_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      WORKBENCH_OTEL_SERVICE_NAME: autodev-api
+    volumes:
+      - workbench-data:/data
+      - ${PWD}/.workspaces:/workspaces
+      - ${PWD}/agents:/app/agents
+      - ${PWD}/skills:/app/skills
+      - ${PWD}/harnesses:/app/harnesses
+      - ${PWD}/capability-catalogs:/app/capability-catalogs
+      - ${PWD}/mcp:/app/mcp
+      - ${PWD}/workflows:/app/workflows
+      - ${PWD}/evaluations:/app/evaluations
+      - ${PWD}/policies:/app/policies
+      - ${PWD}/prompts:/app/prompts:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on: [otel-collector]
+    networks: [control]
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args: {NEXT_PUBLIC_API_URL: "http://localhost:8000"}
+    ports: ["3000:3000"]
+    depends_on: [api]
+    networks: [control]
+  otel-collector:
+    build:
+      context: .
+      dockerfile: observability/collector.Dockerfile
+    command: ["--config=/etc/otelcol-contrib/autodev.yaml"]
+    ports: ["4318:4318"]
+    depends_on: [tempo]
+    networks: [control]
+  tempo:
+    build:
+      context: .
+      dockerfile: observability/tempo.Dockerfile
+    command: ["-config.file=/etc/tempo.yaml"]
+    volumes:
+      - tempo-data:/var/tempo
+    ports: ["3200:3200"]
+    networks: [control]
+  prometheus:
+    build:
+      context: .
+      dockerfile: observability/prometheus.Dockerfile
+    command: ["--config.file=/etc/prometheus/autodev.yml"]
+    volumes:
+      - prometheus-data:/prometheus
+    ports: ["9090:9090"]
+    depends_on: [otel-collector]
+    networks: [control]
+  grafana:
+    build:
+      context: .
+      dockerfile: observability/grafana.Dockerfile
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - grafana-data:/var/lib/grafana
+    ports: ["3001:3000"]
+    depends_on: [prometheus, tempo]
+    networks: [control]
+
+networks:
+  control: {}
+volumes:
+  workbench-data: {}
+  tempo-data: {}
+  prometheus-data: {}
+  grafana-data: {}

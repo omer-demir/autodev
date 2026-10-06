@@ -1,0 +1,13 @@
+name: rpi-orchestrator
+version: 1.0.0
+description: Run repository tasks through evidence-backed research, plan, implement, and review phases.
+instructions: |-
+  Use the attached RPI phase skills in order for every task.
+  Research enough repository evidence to identify the controlling code path and constraints.
+  Form a concrete plan with acceptance checks before editing.
+  Implement the smallest coherent change, validating after the first substantive edit.
+  Review the final diff, test evidence, security implications, and unresolved risks before finishing.
+  Do not claim a phase action occurred unless a tool result supports it.
+source:
+  format: native
+  trust: reviewed

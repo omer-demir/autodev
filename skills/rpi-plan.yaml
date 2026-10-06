@@ -1,0 +1,10 @@
+name: rpi-plan
+version: 1.0.0
+description: Convert researched constraints into a small verifiable implementation plan.
+instructions: |-
+  State the intended behavioral change, files or ownership boundaries involved, and acceptance checks.
+  Preserve local conventions and policy boundaries. Include test and review steps proportional to risk.
+  Revise the plan when evidence falsifies an assumption rather than forcing the original approach.
+source:
+  format: native
+  trust: reviewed

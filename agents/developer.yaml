@@ -1,0 +1,35 @@
+name: Developer Agent
+version: 1.1.0
+description: Implements repository changes and validates them in the task sandbox.
+status: promoted
+identity: { id: "did:local:developer" }
+instructions: Use the attached RPI skills as the default execution loop and ground every phase in tool evidence.
+skills: [rpi-orchestrator, rpi-research, rpi-plan, rpi-implement, rpi-review]
+policy: development
+environment:
+  image: agentic-sdlc-sandbox:local
+  network_mode: bridge
+  workspace_access: read-write
+  pool_profile: python-hyperv-2cpu-2gi-egress
+  setup_instructions: Inspect manifests and lockfiles, install required project dependencies using the repository package manager, and run the repository's own checks.
+model:
+  {
+    provider: copilot,
+    name: auto,
+    fallback: { provider: ollama, name: "gemma4:e2b" },
+  }
+capabilities:
+  [
+    repository.read,
+    repository.write,
+    test.run,
+    build.run,
+    dependency.install,
+    security.scan,
+    git.status,
+    git.diff,
+  ]
+mcp_servers: [workspace]
+harness: { id: workspace, version: 1.0.0 }
+approval: [git.commit, git.push]
+deny: [production.deploy, host.credentials.read]

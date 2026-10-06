@@ -1,0 +1,4 @@
+version: "1.0"
+name: default-v1
+default_action: deny
+rules: []

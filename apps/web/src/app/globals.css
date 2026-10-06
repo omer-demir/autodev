@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+:root {
+  --background: #080b11;
+  --foreground: #e8edf5;
+  --panel: #0e131d;
+  --border: #202938;
+  --muted: #8491a7;
+  --accent: #5eead4;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+  background-image:
+    radial-gradient(circle at 75% -20%, rgba(45, 212, 191, 0.09), transparent 33%),
+    radial-gradient(circle at 10% 90%, rgba(59, 130, 246, 0.06), transparent 30%);
+}
+
+* { border-color: var(--border); }
+button, a { transition: all 160ms ease; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+::selection { background: rgba(94, 234, 212, .25); }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-thumb { background: #263244; border-radius: 8px; }
+
+.glass {
+  background: rgba(14, 19, 29, .84);
+  backdrop-filter: blur(16px);
+}
+
+.grid-fade {
+  background-image:
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
+  background-size: 32px 32px;
+}

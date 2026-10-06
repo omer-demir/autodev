@@ -1,0 +1,32 @@
+version: "1.0"
+name: development-v1
+default_action: deny
+rules:
+  - capabilities:
+      [
+        repository.read,
+        repository.write,
+        filesystem.read,
+        filesystem.write,
+        test.run,
+        build.run,
+        dependency.install,
+        security.scan,
+        git.status,
+        git.diff,
+      ]
+    decision: allow
+  - capabilities: [git.commit, git.push, pull_request.create]
+    decision: require_approval
+  - capabilities:
+      [
+        production.deploy,
+        deployment.execute,
+        host.credentials.read,
+        infrastructure.delete,
+      ]
+    decision: deny
+runtime:
+  max_duration_seconds: 1800
+  max_tool_calls: 500
+  max_shell_calls: 100

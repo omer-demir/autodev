@@ -1,0 +1,49 @@
+name: Governed SDLC
+version: 2.0.0
+description: Hypervisor-supervised task lifecycle executed by the workflow controller.
+status: active
+phases:
+  - id: intake
+    status: INTAKE
+    label: Repository
+    progress: 5
+  - id: planning
+    status: PLANNING
+    label: Agent
+    progress: 15
+  - id: implementation
+    status: IMPLEMENTATION
+    label: Implementation
+    progress: 35
+  - id: model-recovery
+    status: AWAITING_MODEL
+    label: Model recovery
+    progress: inherit
+  - id: testing
+    status: TESTING
+    label: Testing
+    progress: 65
+  - id: security
+    status: SECURITY
+    label: Security
+    progress: 78
+  - id: review
+    status: REVIEW
+    label: Review
+    progress: 88
+  - id: approval
+    status: AWAITING_APPROVAL
+    label: Approval
+    progress: 95
+  - id: done
+    status: DONE
+    label: Done
+    progress: 100
+  - id: failed
+    status: FAILED
+    label: Failed
+    progress: inherit
+  - id: cancelled
+    status: CANCELLED
+    label: Cancelled
+    progress: inherit

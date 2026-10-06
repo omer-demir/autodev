@@ -1,0 +1,14 @@
+.git
+.next
+**/.next
+.venv
+node_modules
+**/node_modules
+__pycache__
+**/__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+.evidence
+.workspaces

@@ -1,0 +1,15 @@
+---
+name: coding-task
+description: Initial user turn for a governed coding task.
+inputs:
+  task_id: {type: string}
+  title: {type: string}
+  description: {type: string}
+  steering_block: {type: string, default: ""}
+---
+Task {{ task_id }}: {{ title }}
+
+{{ description }}{% if steering_block %}
+
+Developer steering received during this session:
+{{ steering_block }}{% endif %}

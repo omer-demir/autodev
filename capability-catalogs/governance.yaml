@@ -1,0 +1,10 @@
+name: Governance Capability Catalog
+version: 1.0.0
+description: Expected effective-policy decisions used by active security probes.
+capabilities:
+  - { name: read_file, action: repository.read, expected: ALLOW }
+  - { name: git_diff, action: git.diff, expected: ALLOW }
+  - { name: git_commit, action: git.commit, expected: REQUIRE_APPROVAL }
+  - { name: git_push, action: git.push, expected: REQUIRE_APPROVAL }
+  - { name: production_deploy, action: production.deploy, expected: DENY }
+  - { name: host_credentials, action: host.credentials.read, expected: DENY }

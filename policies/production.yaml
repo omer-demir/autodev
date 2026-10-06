@@ -1,0 +1,9 @@
+version: "1.0"
+name: production-v1
+default_action: deny
+rules:
+  - capabilities: [repository.read, git.status, git.diff]
+    decision: allow
+  - capabilities:
+      [git.commit, git.push, pull_request.create, deployment.execute]
+    decision: require_approval

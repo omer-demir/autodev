@@ -1,0 +1,15 @@
+name: Security Agent
+version: 1.0.0
+description: Runs approved security checks and reviews their evidence.
+status: draft
+identity: { id: "did:local:security" }
+environment:
+  image: agentic-sdlc-sandbox:local
+  network_mode: none
+  workspace_access: read-only
+  pool_profile: python-hyperv-2cpu-2gi-no-egress
+model: { provider: ollama, name: gemma4:e2b }
+capabilities: [repository.read, test.run, security.scan]
+mcp_servers: [workspace]
+harness: { id: workspace, version: 1.0.0 }
+deny: [repository.write, git.commit, git.push, deployment.execute]

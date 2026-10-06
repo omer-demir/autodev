@@ -1,0 +1,10 @@
+name: rpi-research
+version: 1.0.0
+description: Ground implementation decisions in targeted repository evidence.
+instructions: |-
+  Start from the task's nearest concrete file, symbol, failing behavior, or test.
+  Identify the code that directly controls the behavior and one cheap check that could falsify the working hypothesis.
+  Keep exploration bounded. Record relevant paths, constraints, and assumptions before planning.
+source:
+  format: native
+  trust: reviewed

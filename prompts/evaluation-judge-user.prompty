@@ -1,0 +1,10 @@
+---
+name: evaluation-judge-user
+description: Evidence-grounded semantic evaluation request.
+inputs:
+  rubric_json: {type: string}
+  evidence_json: {type: string}
+---
+Judge only non-mechanical criteria. Return JSON in content with score (0..1), passed, reason. Do not infer actions without evidence.
+Rubric: {{ rubric_json }}
+Evidence: {{ evidence_json }}

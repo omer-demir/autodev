@@ -1,0 +1,7 @@
+---
+name: vally-delegation
+description: Delegation request used by the Vally evaluator.
+inputs:
+  scenario_prompt: {type: string}
+---
+Delegate this task to the candidate specialist. {{ scenario_prompt }}

@@ -1,0 +1,14 @@
+name: Governed Workspace Tools
+version: 1.0.0
+description: Built-in filesystem, Git, build, test, and security tool declarations.
+transport: http
+runtime: builtin
+enabled: true
+endpoint: /gateway/mcp
+sse_endpoint: /gateway/sse
+harness: { id: workspace, version: 1.0.0 }
+allowed_agents:
+  - did:local:developer
+  - did:local:reviewer
+  - did:local:security
+note: External clients use authenticated MCP transports; agent runtime tools remain in-process.

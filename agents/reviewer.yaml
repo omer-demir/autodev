@@ -1,0 +1,15 @@
+name: Reviewer Agent
+version: 1.0.0
+description: Reviews diffs and test evidence without modifying the repository.
+status: draft
+identity: { id: "did:local:reviewer" }
+environment:
+  image: agentic-sdlc-sandbox:local
+  network_mode: none
+  workspace_access: read-only
+  pool_profile: python-hyperv-2cpu-2gi-no-egress
+model: { provider: ollama, name: gemma4:e2b }
+capabilities: [repository.read, git.diff, test.run]
+mcp_servers: [workspace]
+harness: { id: workspace, version: 1.0.0 }
+deny: [repository.write, git.commit, git.push, deployment.execute]

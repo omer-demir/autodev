@@ -1,0 +1,19 @@
+{
+  "name": "agentic-sdlc-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": ["apps/web"],
+  "scripts": {
+    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",
+    "dev:web": "npm --workspace apps/web run dev",
+    "dev:api": ".venv/bin/uvicorn app.main:app --app-dir apps/api --reload --reload-dir apps/api --port 8000",
+    "build": "npm --workspace apps/web run build",
+    "lint": "npm --workspace apps/web run lint",
+    "test": ".venv/bin/pytest apps/api/tests"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "next": "16.3.8"
+  },
+  "overrides": {"monaco-editor": "0.53.0"}
+}

@@ -1,0 +1,43 @@
+FROM node:22-bookworm-slim AS node-tools
+RUN npm install --global @microsoft/vally-cli@0.17.0
+
+FROM docker:29-cli AS docker-tools
+
+FROM python:3.12-slim
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git && rm -rf /var/lib/apt/lists/*
+COPY --from=docker-tools /usr/local/bin/docker /usr/local/bin/docker
+COPY --from=node-tools /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-tools /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+	&& ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx \
+	&& ln -s ../lib/node_modules/@microsoft/vally-cli/dist/index.js /usr/local/bin/vally
+ARG WAZA_INSTALL_REF=da4c84b34a1dba5169e185555e85fed2458c4508
+RUN curl -fsSL "https://raw.githubusercontent.com/microsoft/waza/${WAZA_INSTALL_REF}/install.sh" -o /tmp/install-waza.sh \
+	&& sh /tmp/install-waza.sh \
+	&& rm /tmp/install-waza.sh \
+	&& docker --version \
+	&& vally --version \
+	&& waza --version
+COPY pyproject.toml ./
+COPY apps/api ./apps/api
+COPY cli ./cli
+COPY agents ./agents
+COPY skills ./skills
+COPY mcp ./mcp
+COPY workflows ./workflows
+COPY evaluations ./evaluations
+COPY policies ./policies
+COPY prompts ./prompts
+COPY docker/sandbox/Dockerfile ./docker/sandbox/Dockerfile
+RUN test -f agents/developer.yaml \
+	&& test -f skills/rpi-orchestrator.yaml \
+	&& test -f mcp/servers/workspace.yaml \
+	&& test -f workflows/sdlc.yaml \
+	&& test -f evaluations/suites/baseline.yaml \
+	&& test -f prompts/coding-agent-system.prompty \
+	&& test -f prompts/coding-task.prompty \
+	&& pip install --no-cache-dir .
+ENV PYTHONPATH=/app/apps/api
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "0.0.0.0", "--port", "8000"]

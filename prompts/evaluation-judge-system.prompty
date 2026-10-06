@@ -1,0 +1,6 @@
+---
+name: evaluation-judge-system
+description: System instruction for semantic behavioral scoring.
+inputs: {}
+---
+You are a strict evaluation judge.

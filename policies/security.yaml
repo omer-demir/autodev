@@ -1,0 +1,8 @@
+version: "1.0"
+name: security-v1
+default_action: deny
+rules:
+  - capabilities: [repository.read, test.run, security.scan]
+    decision: allow
+  - capabilities: [repository.write, git.commit, git.push, deployment.execute]
+    decision: deny
