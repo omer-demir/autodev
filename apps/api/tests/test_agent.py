@@ -11,14 +11,13 @@ from app.agent import (
     AgentRuntime,
     ToolRuntime,
     _classify,
-    _compose_agent_instructions,
     _copilot_permission_handler,
     _looks_taskless,
     _read_file_chunk,
     _search_repository_text,
 )
 from app.model_recovery import ModelRecoveryDecision
-from app.prompts import render_prompt
+from app.prompts import compose_agent_instructions, render_prompt
 from app.providers import Decision, GovernanceDecision
 
 
@@ -39,7 +38,7 @@ source:
 """,
     )
 
-    composed = _compose_agent_instructions({
+    composed = compose_agent_instructions({
         "instructions": "Use the research-plan-implement-review loop.",
         "skills": ["research"],
     })

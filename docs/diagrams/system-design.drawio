@@ -1,0 +1,143 @@
+<mxfile host="65bd71144e">
+    <diagram id="system" name="System design">
+        <mxGraphModel dx="1531" dy="854" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="1000" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" parent="1" style="text;html=1;fontSize=24;fontStyle=1;align=left;" value="Autodev - System Design and Task Lifecycle" vertex="1">
+                    <mxGeometry height="40" width="750" x="40" y="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="experience" parent="1" style="swimlane;html=1;horizontal=1;startSize=32;fillColor=#eff6ff;strokeColor=#2563eb;fontStyle=1;" value="Experience" vertex="1">
+                    <mxGeometry height="760" width="330" x="40" y="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="operator" parent="experience" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontStyle=1;" value="Operator&lt;br&gt;Developer / Reviewer / Admin" vertex="1">
+                    <mxGeometry height="70" width="220" x="55" y="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="web" parent="experience" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;" value="Next.js UI&lt;br&gt;Dashboard, Tasks, Sessions&lt;br&gt;Management, Security, Evidence" vertex="1">
+                    <mxGeometry height="95" width="220" x="55" y="175" as="geometry"/>
+                </mxCell>
+                <mxCell id="clients" parent="experience" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;" value="Other clients&lt;br&gt;agentctl / REST / MCP" vertex="1">
+                    <mxGeometry height="75" width="220" x="55" y="315" as="geometry"/>
+                </mxCell>
+                <mxCell id="control" parent="1" style="swimlane;html=1;horizontal=1;startSize=32;fillColor=#ecfdf5;strokeColor=#059669;fontStyle=1;" value="Control plane" vertex="1">
+                    <mxGeometry height="760" width="690" x="400" y="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="api" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1fae5;strokeColor=#059669;" value="FastAPI routes + WebSocket invalidation&lt;br&gt;Authentication, RBAC, organization scope" vertex="1">
+                    <mxGeometry height="65" width="630" x="30" y="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="repo" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1fae5;strokeColor=#059669;" value="1. Repository service&lt;br&gt;Validate / clone / isolated worktree" vertex="1">
+                    <mxGeometry height="80" width="185" x="30" y="155" as="geometry"/>
+                </mxCell>
+                <mxCell id="supervisor" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontStyle=1;" value="2. Workflow supervisor&lt;br&gt;State-machine transition validation" vertex="1">
+                    <mxGeometry height="80" width="190" x="250" y="155" as="geometry"/>
+                </mxCell>
+                <mxCell id="sandboxmgr" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;" value="3. Sandbox provider&lt;br&gt;Create / execute / kill" vertex="1">
+                    <mxGeometry height="80" width="185" x="475" y="155" as="geometry"/>
+                </mxCell>
+                <mxCell id="agent" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1fae5;strokeColor=#059669;" value="4. AgentRuntime&lt;br&gt;Resolve agent + attached skills&lt;br&gt;Create Agent Framework session" vertex="1">
+                    <mxGeometry height="100" width="190" x="30" y="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="tool" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontStyle=1;" value="5. ToolRuntime&lt;br&gt;Resolve harness capability&lt;br&gt;Apply invocation budgets" vertex="1">
+                    <mxGeometry height="100" width="190" x="250" y="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="policy" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;fontStyle=1;" value="6. GovernanceProvider&lt;br&gt;Agent ∩ policy&lt;br&gt;Allow / deny / require approval" vertex="1">
+                    <mxGeometry height="100" width="185" x="475" y="280" as="geometry"/>
+                </mxCell>
+                <mxCell id="post" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1fae5;strokeColor=#059669;" value="7. Deterministic post-run pipeline&lt;br&gt;Collect diff → tests → security scans → RPI review → approval" vertex="1">
+                    <mxGeometry height="70" width="630" x="30" y="430" as="geometry"/>
+                </mxCell>
+                <mxCell id="evaluation" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1fae5;strokeColor=#059669;" value="Evaluation service&lt;br&gt;Dataset generate/review/freeze&lt;br&gt;Native + Vally + Waza&lt;br&gt;Compare + promote" vertex="1">
+                    <mxGeometry height="105" width="250" x="30" y="545" as="geometry"/>
+                </mxCell>
+                <mxCell id="publication" parent="control" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fef3c7;strokeColor=#d97706;" value="Publication service&lt;br&gt;Clean worktree required&lt;br&gt;Commit / push / PR after approval" vertex="1">
+                    <mxGeometry height="105" width="250" x="410" y="545" as="geometry"/>
+                </mxCell>
+                <mxCell id="runtime" parent="1" style="swimlane;html=1;horizontal=1;startSize=32;fillColor=#faf5ff;strokeColor=#7c3aed;fontStyle=1;" value="Runtime + providers" vertex="1">
+                    <mxGeometry height="760" width="430" x="1120" y="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="models" parent="runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" value="Model adapters&lt;br&gt;Copilot / Ollama / Foundry" vertex="1">
+                    <mxGeometry height="70" width="340" x="45" y="65" as="geometry"/>
+                </mxCell>
+                <mxCell id="Ig3hnolp4p52AgMv2-Ta-1" edge="1" parent="runtime" source="sandbox" style="edgeStyle=none;html=1;" target="models" value="">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="sandbox" parent="runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;" value="Execution adapters&lt;br&gt;Docker / Azure dynamic session" vertex="1">
+                    <mxGeometry height="70" width="340" x="45" y="175" as="geometry"/>
+                </mxCell>
+                <mxCell id="scm" parent="runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" value="Repository providers&lt;br&gt;Local Git / GitHub API + clone" vertex="1">
+                    <mxGeometry height="70" width="340" x="45" y="285" as="geometry"/>
+                </mxCell>
+                <mxCell id="durable" parent="runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="Durable domain model&lt;br&gt;Organization, User, Membership&lt;br&gt;Project, Task, Message, Event&lt;br&gt;Approval, Sandbox, Artifact&lt;br&gt;Dataset, EvaluationRun, AgentIdentity" vertex="1">
+                    <mxGeometry height="130" width="340" x="45" y="400" as="geometry"/>
+                </mxCell>
+                <mxCell id="files" parent="runtime" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="File-backed definitions + evidence&lt;br&gt;agents / skills / policies / harnesses&lt;br&gt;catalogs / workflows / suites / Prompty" vertex="1">
+                    <mxGeometry height="95" width="340" x="45" y="585" as="geometry"/>
+                </mxCell>
+                <mxCell id="a1" edge="1" parent="1" source="operator" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#2563eb;" target="web">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a2" edge="1" parent="1" source="web" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#2563eb;" target="api">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="350" y="312.5"/>
+                            <mxPoint x="350" y="230"/>
+                            <mxPoint x="745" y="230"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a3" edge="1" parent="1" source="clients" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#2563eb;" target="api">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="350" y="442.5"/>
+                            <mxPoint x="350" y="230"/>
+                            <mxPoint x="745" y="230"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a4" edge="1" parent="1" source="repo" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#059669;" target="supervisor">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a5" edge="1" parent="1" source="supervisor" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#059669;" target="sandboxmgr">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a6" edge="1" parent="1" source="agent" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#059669;" target="tool">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a7" edge="1" parent="1" source="tool" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#d97706;" target="policy">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a8" edge="1" parent="1" source="agent" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#7c3aed;" target="models">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="525" y="480"/>
+                            <mxPoint x="1530" y="480"/>
+                            <mxPoint x="1530" y="190"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a9" edge="1" parent="1" source="sandboxmgr" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#dc2626;" target="sandbox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a10" edge="1" parent="1" source="repo" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#7c3aed;" target="scm">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="522.5" y="350"/>
+                            <mxPoint x="1335" y="350"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="a11" edge="1" parent="1" source="post" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="durable">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="a12" edge="1" parent="1" source="evaluation" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="files">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="555" y="780"/>
+                            <mxPoint x="1335" y="780"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>

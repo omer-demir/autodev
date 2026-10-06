@@ -18,6 +18,7 @@ dependencies = [
     "agent-framework-github-copilot==2.0.1",
     "agent-framework-ollama==1.0.0b261002",
     "agent-governance-toolkit-core==5.0.0",
+    "agent-governance-toolkit-compliance==5.0.0",
     "agent-sre==3.7.0",
     "opentelemetry-sdk>=1.38,<2",
     "opentelemetry-exporter-otlp-proto-http>=1.38,<2",

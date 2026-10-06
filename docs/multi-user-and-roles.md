@@ -2,21 +2,26 @@
 
 ## Current boundary
 
-The Workbench currently runs as a trusted, single-user local control plane. GitHub repository OAuth connects a source-control identity; it is not a Workbench login. Projects, tasks, approvals, registry definitions, terminals, and evidence are therefore not isolated by user or organization yet. Do not expose the current API directly to multiple untrusted users.
+The Workbench supports two authentication modes:
 
-## Recommended identity model
+- `local` provisions a local administrator and organization for trusted workstation use.
+- `oidc` validates issuer, audience, signature, and required JWT claims through configured JWKS, resolves organization membership, and applies role permissions.
 
-Use an OIDC provider (GitHub, Microsoft Entra ID, or another organization identity provider) and an API-managed session:
+Projects, tasks, approvals, datasets, evaluation runs, agent identity records, marketplace entries, durable sessions, and their API queries carry organization scope. Approval records retain requester and approver identity. The built-in roles are viewer, developer, reviewer, and admin.
 
-1. Complete OIDC Authorization Code + PKCE in the API.
-2. Store only an opaque session ID in a `Secure`, `HttpOnly`, `SameSite=Lax` cookie.
-3. Model `Organization`, `User`, `Membership`, `Role`, `RolePermission`, and `Session` records.
-4. Add `organization_id` and `created_by` to projects, tasks, datasets, evaluation runs, and registry definitions.
-5. Scope every query, mutation, WebSocket subscription, sandbox operation, and evidence download to the current organization.
-6. Record `actor_id`, delegated role, decision, reason, and resource scope on approvals and audit events.
-7. Use a GitHub App per organization for short-lived repository credentials. Do not share one in-memory OAuth token among users.
+This is a foundation for multi-user operation, not yet a complete hosted tenancy boundary. Registry YAML and prompt assets are deployment-wide files rather than organization-owned records; the GitHub OAuth connector still has a process-local credential slot; and membership administration is API/provisioning-oriented rather than a complete admin experience. Do not claim hostile-tenant isolation until those shared resources, WebSocket/MCP authorization tests, credential storage, and deployment boundaries have received a dedicated production security review.
 
-For a small trusted team, one organization with several memberships is sufficient. For hosted use, enforce organization scope in the database access layer rather than relying on UI filtering.
+## Implemented identity model
+
+Use an OIDC provider such as Microsoft Entra ID or another organization identity provider. The current implementation:
+
+1. Accepts a bearer token or `workbench_access_token` cookie.
+2. Validates the token through configured issuer, audience, algorithms, and JWKS URL.
+3. Models `Organization`, `User`, and `Membership`; roles map to centralized permission sets.
+4. Auto-provisions an OIDC principal only when enabled and the claimed organization matches the requested organization.
+5. Scopes organization-aware resources and records `created_by`, `requester_id`, and `approver_id` where applicable.
+
+For hosted use, put the API behind HTTPS and an OIDC login/session layer, test every REST/WebSocket/MCP route for cross-organization access, move deployment-wide registries into an organization-aware release model, and use per-organization GitHub App installation credentials.
 
 ## Separate human roles from agent capabilities
 
@@ -72,10 +77,10 @@ Use scoped, single-use approvals containing the immutable diff or artifact diges
 
 ## Implementation order
 
-1. Add OIDC sessions and organization-scoped models.
-2. Migrate existing records into a default local organization and owner.
-3. Add centralized `authorize(actor, action, resource, context)` enforcement to every API and WebSocket route.
-4. Add role administration and project membership UI.
-5. Add path/task/environment conditions to governance.
-6. Add actor-aware audit events and separation-of-duties tests.
-7. Only then expose the service beyond localhost.
+1. **Implemented:** OIDC token validation, local bootstrap identity, organizations, memberships, role permissions, and organization-scoped primary records.
+2. **Implemented:** requester/approver identity on scoped approvals and organization-aware task/evaluation/session operations.
+3. **Next:** complete authorization matrix tests for every REST, WebSocket, MCP, sandbox, evidence, connector, and registry path.
+4. **Next:** add role/membership administration and an explicit browser OIDC login/session lifecycle.
+5. **Next:** replace shared registry files and connector credentials with organization-owned, versioned resources and GitHub App installation tokens.
+6. **Next:** add path/task/environment conditions, approval expiry, immutable artifact digests, and enforced separation of duties.
+7. Complete a production threat review before exposing the service to mutually untrusted tenants.

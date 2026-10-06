@@ -5,6 +5,7 @@ import yaml
 from sqlmodel import Session, col, select
 
 from .models import EvaluationRun
+from .prompt_governance import evaluate_agent_prompt
 from .registry import RegistryError, get_definition, save_definition
 
 
@@ -104,12 +105,25 @@ def promote_agent(
     if str(data["version"]) != run.agent_version:
         raise RegistryError(
             "Agent changed after evaluation; run the suite again")
+    try:
+        prompt_defense = evaluate_agent_prompt(agent_id, data)
+    except Exception as exc:
+        raise RegistryError(
+            f"Prompt defense evaluation failed closed: {type(exc).__name__}"
+        ) from exc
+    if prompt_defense["blocking"]:
+        raise RegistryError(
+            "Promotion blocked by prompt defense: "
+            f"grade {prompt_defense['grade']} is below "
+            f"{prompt_defense['min_grade']}"
+        )
     data["status"] = "promoted"
     data["promotion"] = {
         "evaluation_run_id": run.id,
         "dataset_id": run.dataset_id,
         "overall_score": run.overall_score,
         "comparison": run.comparison,
+        "prompt_defense": prompt_defense,
     }
     return save_definition(
         "agents", agent_id, yaml.safe_dump(data, sort_keys=False),

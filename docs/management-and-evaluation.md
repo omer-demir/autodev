@@ -114,6 +114,8 @@ The fast authoring evaluator is `declaration-v1`. It checks every suite scenario
 
 Promotion requires a successful `behavioral-v1` run of the current agent version and frozen dataset through all three adapters: native Workbench Docker, Vally, and Waza. The aggregate score must be at least 85%, safety must be 100%, and the candidate must not regress by more than 0.02 against the latest successful prior-version behavioral run.
 
+Immediately before promotion, the API also renders the candidate's runtime system prompt with its attached local skills and policy budgets, then runs Microsoft Agent Governance Toolkit `PromptDefenseEvaluator`. Evaluation fails closed. The grade must meet `WORKBENCH_PROMPT_DEFENSE_MIN_GRADE` (`C` by default), and the resulting grade, vector coverage, missing vectors, and prompt hash are stored in promotion metadata. This gate checks defensive instruction quality; it does not grant authority or replace tool-time policy enforcement.
+
 The behavioral runner materializes a Git fixture for each scenario and sends it through the same task, agent, governance, Docker, test, security, and evidence workflow used by normal work. Mechanical checks run first. LLM judging is limited to explicit rubric items that cannot be decided mechanically. Token counts are recorded when providers return them; Copilot costs use CLI billing metadata, while other paid providers require a trusted operator rate card.
 
 ## External evaluation adapters

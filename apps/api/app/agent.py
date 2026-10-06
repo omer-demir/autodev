@@ -19,7 +19,7 @@ from .config import get_settings
 from .foundry import FoundryResponsesProvider
 from .harness import foundry_tool_schemas, resolve_agent_harness, resolved_tools
 from .model_recovery import ModelRecoveryDecision
-from .prompts import render_prompt
+from .prompts import render_agent_system_prompt, render_prompt
 from .providers import (
     Decision,
     GovernanceProvider,
@@ -38,7 +38,6 @@ _EXCLUDED_PARTS = {".git", "node_modules", ".venv", "dist", "build"}
 _WORKBENCH_TOOL_NAMES = {
     "list_files", "search_text", "read_file", "write_file", "delete_file", "run_command",
 }
-_MAX_COMPOSED_INSTRUCTIONS = 120_000
 
 
 class _ModelRecoveryRedirect(Exception):
@@ -136,25 +135,6 @@ def _looks_taskless(content: str) -> bool:
         "what task would you like",
         "what would you like me to do",
     ))
-
-
-def _compose_agent_instructions(definition: dict[str, Any]) -> str:
-    sections: list[str] = []
-    local = definition.get("instructions")
-    if isinstance(local, str) and local.strip():
-        sections.append(f"## Agent instructions\n{local.strip()}")
-    for skill_id in definition.get("skills", []):
-        skill = get_definition("skills", str(skill_id))["data"]
-        sections.append(
-            f"## Skill: {skill['name']}\n"
-            f"{str(skill['instructions']).strip()}"
-        )
-    composed = "\n\n".join(sections)
-    if len(composed) > _MAX_COMPOSED_INSTRUCTIONS:
-        raise ValueError(
-            f"Agent and skill instructions exceed {_MAX_COMPOSED_INSTRUCTIONS} characters"
-        )
-    return composed
 
 
 def _repository_files(root: Path, pattern: str = "*") -> list[Path]:
@@ -650,10 +630,6 @@ class AgentRuntime:
     ) -> str:
         definition = get_definition(
             "agents", agent_id.removeprefix("did:local:"))["data"]
-        capabilities = sorted(str(item)
-                              for item in definition.get("capabilities", []))
-        denied = sorted(str(item) for item in definition.get("deny", []))
-        environment = definition.get("environment", {})
         policy = get_definition(
             "policies", str(definition.get("policy", "development"))
         )["data"]
@@ -665,15 +641,10 @@ class AgentRuntime:
         max_shell_calls = max(
             1, int(policy_runtime.get("max_shell_calls", max_tool_calls))
         )
-        instructions = render_prompt(
-            "coding-agent-system",
-            agent_name=str(definition.get("name", agent_id)),
-            agent_version=str(definition.get("version", "unknown")),
-            capabilities_json=json.dumps(capabilities),
-            denied_json=json.dumps(denied),
+        instructions = render_agent_system_prompt(
+            definition,
+            agent_id=agent_id,
             task_mode=task_mode,
-            setup_instructions=str(environment.get("setup_instructions", "")),
-            extension_instructions=_compose_agent_instructions(definition),
             max_tool_calls=max_tool_calls,
             max_shell_calls=max_shell_calls,
         )

@@ -209,3 +209,19 @@ def test_promotion_requires_all_behavioral_adapters():
         session.commit()
         with pytest.raises(RegistryError, match="native Docker, Vally, and Waza"):
             promote_agent(session, "developer")
+
+
+def test_promotion_blocks_weak_prompt_defense():
+    with TestClient(app), Session(engine) as session:
+        session.add(EvaluationRun(
+            id="EVAL-WEAKPROMPT", agent_id="developer", agent_version="1.1.0",
+            suite_id="baseline", suite_version="1.0.0", evaluator="behavioral-v1",
+            status="COMPLETED", overall_score=1.0,
+            scores={"behavioral": 1.0, "safety": 1.0},
+            provenance={"adapters": ["native", "vally", "waza"]},
+        ))
+        session.commit()
+        with patch("app.evaluation.evaluate_agent_prompt", return_value={
+            "grade": "D", "min_grade": "C", "blocking": True,
+        }), pytest.raises(RegistryError, match="grade D is below C"):
+            promote_agent(session, "developer")

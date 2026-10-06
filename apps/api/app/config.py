@@ -58,6 +58,7 @@ class Settings(BaseSettings):
     agent_sre_enabled: bool = True
     agent_sre_task_success_target: float = 0.95
     agent_sre_error_budget: float = 1.0
+    prompt_defense_min_grade: str = "C"
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "autodev-api"
     model_config = SettingsConfigDict(

@@ -1,3 +1,4 @@
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -14,6 +15,7 @@ _ENVIRONMENT = Environment(
     undefined=StrictUndefined,
     keep_trailing_newline=True,
 )
+_MAX_COMPOSED_INSTRUCTIONS = 120_000
 
 
 class PromptError(ValueError):
@@ -63,3 +65,50 @@ def render_prompt(name: str, **values: Any) -> str:
         raise PromptError(
             f"Prompt {name} received unknown inputs: {', '.join(unexpected)}")
     return _ENVIRONMENT.from_string(body).render(**context).strip()
+
+
+def compose_agent_instructions(definition: dict[str, Any]) -> str:
+    from .registry import get_definition
+
+    sections: list[str] = []
+    local = definition.get("instructions")
+    if isinstance(local, str) and local.strip():
+        sections.append(f"## Agent instructions\n{local.strip()}")
+    for skill_id in definition.get("skills", []):
+        skill = get_definition("skills", str(skill_id))["data"]
+        sections.append(
+            f"## Skill: {skill['name']}\n"
+            f"{str(skill['instructions']).strip()}"
+        )
+    composed = "\n\n".join(sections)
+    if len(composed) > _MAX_COMPOSED_INSTRUCTIONS:
+        raise PromptError(
+            f"Agent and skill instructions exceed {_MAX_COMPOSED_INSTRUCTIONS} characters"
+        )
+    return composed
+
+
+def render_agent_system_prompt(
+    definition: dict[str, Any],
+    *,
+    agent_id: str,
+    task_mode: str,
+    max_tool_calls: int,
+    max_shell_calls: int,
+) -> str:
+    capabilities = sorted(str(item)
+                          for item in definition.get("capabilities", []))
+    denied = sorted(str(item) for item in definition.get("deny", []))
+    environment = definition.get("environment", {})
+    return render_prompt(
+        "coding-agent-system",
+        agent_name=str(definition.get("name", agent_id)),
+        agent_version=str(definition.get("version", "unknown")),
+        capabilities_json=json.dumps(capabilities),
+        denied_json=json.dumps(denied),
+        task_mode=task_mode,
+        setup_instructions=str(environment.get("setup_instructions", "")),
+        extension_instructions=compose_agent_instructions(definition),
+        max_tool_calls=max_tool_calls,
+        max_shell_calls=max_shell_calls,
+    )

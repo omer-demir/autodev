@@ -1,5 +1,15 @@
 # Architecture
 
+Editable technical views are available in the [Draw.io catalog](diagrams/README.md):
+
+- [General architecture](diagrams/general-architecture.drawio)
+- [System design](diagrams/system-design.drawio)
+- [Cloud architecture](diagrams/cloud-architecture.drawio)
+- [Local architecture](diagrams/local-architecture.drawio)
+- [Adapter architecture](diagrams/adapters.drawio)
+
+For product workflows and operational steps, see [Features and how-to](product/features-and-how-to.md).
+
 The task is the primary durable object. The Next.js UI talks to the FastAPI control plane over REST and receives lifecycle invalidations over WebSocket. The SDLC controller owns phase transitions; the model does not.
 
 Three boundaries remain separate:

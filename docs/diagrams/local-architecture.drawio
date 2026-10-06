@@ -1,0 +1,118 @@
+<mxfile host="65bd71144e">
+    <diagram id="local" name="Local architecture">
+        <mxGraphModel dx="1531" dy="854" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="1600" pageHeight="900" math="0" shadow="0">
+            <root>
+                <mxCell id="0"/>
+                <mxCell id="1" parent="0"/>
+                <mxCell id="title" parent="1" style="text;html=1;fontSize=24;fontStyle=1;align=left;" value="Autodev - Local / Docker Compose Architecture" vertex="1">
+                    <mxGeometry height="40" width="750" x="40" y="20" as="geometry"/>
+                </mxCell>
+                <mxCell id="host" parent="1" style="swimlane;html=1;horizontal=1;startSize=32;dashed=1;fillColor=#f9fafb;strokeColor=#374151;fontStyle=1;" value="Developer workstation / Docker host" vertex="1">
+                    <mxGeometry height="700" width="1500" x="40" y="90" as="geometry"/>
+                </mxCell>
+                <mxCell id="browser" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;fontStyle=1;" value="Browser&lt;br&gt;localhost:3000" vertex="1">
+                    <mxGeometry height="70" width="160" x="35" y="80" as="geometry"/>
+                </mxCell>
+                <mxCell id="cli" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;" value="CLI / MCP clients" vertex="1">
+                    <mxGeometry height="60" width="160" x="35" y="185" as="geometry"/>
+                </mxCell>
+                <mxCell id="web" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dbeafe;strokeColor=#2563eb;" value="web service&lt;br&gt;Next.js :3000&lt;br&gt;same-origin API rewrite" vertex="1">
+                    <mxGeometry height="90" width="190" x="245" y="70" as="geometry"/>
+                </mxCell>
+                <mxCell id="api" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d1fae5;strokeColor=#059669;fontStyle=1;" value="api service&lt;br&gt;FastAPI :8000&lt;br&gt;Agent runtime + workflow&lt;br&gt;Governance + evaluation" vertex="1">
+                    <mxGeometry height="120" width="220" x="485" y="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="mounts" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="Bind-mounted definitions&lt;br&gt;agents / skills / policies&lt;br&gt;harnesses / catalogs / MCP&lt;br&gt;workflows / suites / prompts" vertex="1">
+                    <mxGeometry height="120" width="220" x="485" y="225" as="geometry"/>
+                </mxCell>
+                <mxCell id="data" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="workbench-data volume&lt;br&gt;SQLite database&lt;br&gt;evidence + Copilot home" vertex="1">
+                    <mxGeometry height="95" width="210" x="760" y="67.5" as="geometry"/>
+                </mxCell>
+                <mxCell id="worktrees" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;fontStyle=1;" value="Host worktrees&lt;br&gt;.workspaces/TASK-NNN/repo&lt;br&gt;Persistent isolated clones" vertex="1">
+                    <mxGeometry height="95" width="210" x="760" y="210" as="geometry"/>
+                </mxCell>
+                <mxCell id="socket" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" value="Docker socket&lt;br&gt;Privileged control-plane boundary" vertex="1">
+                    <mxGeometry height="80" width="210" x="760" y="360" as="geometry"/>
+                </mxCell>
+                <mxCell id="sandbox" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fee2e2;strokeColor=#dc2626;fontStyle=1;" value="Disposable task sandbox&lt;br&gt;agentic-sdlc-sandbox image&lt;br&gt;/workspace/project bind mount&lt;br&gt;cap-drop ALL + no-new-privileges&lt;br&gt;network disconnected by default" vertex="1">
+                    <mxGeometry height="150" width="250" x="1040" y="182.5" as="geometry"/>
+                </mxCell>
+                <mxCell id="providers" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#ede9fe;strokeColor=#7c3aed;" value="Model endpoints&lt;br&gt;Copilot CLI/SDK&lt;br&gt;Host Ollama :11434&lt;br&gt;Optional Foundry HTTPS" vertex="1">
+                    <mxGeometry height="110" width="250" x="1040" y="55" as="geometry"/>
+                </mxCell>
+                <mxCell id="otel" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="otel-collector :4318" vertex="1">
+                    <mxGeometry height="55" width="190" x="220" y="460" as="geometry"/>
+                </mxCell>
+                <mxCell id="tempo" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="Tempo :3200&lt;br&gt;Trace storage" vertex="1">
+                    <mxGeometry height="70" width="170" x="490" y="500" as="geometry"/>
+                </mxCell>
+                <mxCell id="prom" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="Prometheus :9090&lt;br&gt;Metric storage" vertex="1">
+                    <mxGeometry height="70" width="170" x="490" y="422.5" as="geometry"/>
+                </mxCell>
+                <mxCell id="grafana" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#f3f4f6;strokeColor=#6b7280;" value="Grafana :3001&lt;br&gt;Dashboards + trace links" vertex="1">
+                    <mxGeometry height="70" width="190" x="750" y="460" as="geometry"/>
+                </mxCell>
+                <mxCell id="security" parent="host" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff7ed;strokeColor=#ea580c;fontStyle=1;align=left;spacing=10;" value="No host credentials or Docker socket enter the task sandbox. Temporary bridge networking is enabled only for a governed dependency.install call, then removed." vertex="1">
+                    <mxGeometry height="70" width="1045" x="245" y="590" as="geometry"/>
+                </mxCell>
+                <mxCell id="l1" edge="1" parent="1" source="browser" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#2563eb;" target="web">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l2" edge="1" parent="1" source="cli" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#2563eb;" target="api">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l3" edge="1" parent="1" source="web" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#059669;" target="api">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l4" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="data">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l5" edge="1" parent="1" source="mounts" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="api">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l6" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#7c3aed;" target="providers">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="635" y="140"/>
+                            <mxPoint x="1205" y="140"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l7" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#dc2626;" target="socket" value="create / exec / kill">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="770" y="205"/>
+                            <mxPoint x="770" y="490"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l8" edge="1" parent="1" source="socket" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#dc2626;" target="sandbox">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l9" edge="1" parent="1" source="worktrees" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="sandbox" value="same files">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l10" edge="1" parent="1" source="api" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="otel">
+                    <mxGeometry relative="1" as="geometry">
+                        <Array as="points">
+                            <mxPoint x="635" y="290"/>
+                            <mxPoint x="380" y="290"/>
+                        </Array>
+                    </mxGeometry>
+                </mxCell>
+                <mxCell id="l11" edge="1" parent="1" source="otel" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="tempo">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l12" edge="1" parent="1" source="otel" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="prom">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l13" edge="1" parent="1" source="tempo" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="grafana">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+                <mxCell id="l14" edge="1" parent="1" source="prom" style="edgeStyle=orthogonalEdgeStyle;html=1;endArrow=block;strokeColor=#6b7280;" target="grafana">
+                    <mxGeometry relative="1" as="geometry"/>
+                </mxCell>
+            </root>
+        </mxGraphModel>
+    </diagram>
+</mxfile>
