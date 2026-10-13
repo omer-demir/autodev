@@ -158,7 +158,8 @@ async def list_github_repositories(
             raise RepositoryError(f"GitHub account not found: {owner}")
         response.raise_for_status()
         value = response.json()
-        repositories = value.get("repositories", []) if isinstance(value, dict) else value
+        repositories = value.get("repositories", []) if isinstance(
+            value, dict) else value
     repositories = [
         item for item in repositories
         if item["owner"]["login"].casefold() == owner.casefold()
@@ -369,7 +370,8 @@ async def publish_repository(
                 **identity_options,
             )
         except (httpx.HTTPError, RuntimeError) as exc:
-            raise RepositoryError(f"GitHub App authentication failed: {exc}") from exc
+            raise RepositoryError(
+                f"GitHub App authentication failed: {exc}") from exc
     return await asyncio.to_thread(_publish, project, workspace, branch, identity)
 
 
@@ -394,9 +396,11 @@ async def create_github_pull_request(
             **identity_options,
         )
     except (httpx.HTTPError, RuntimeError) as exc:
-        raise RepositoryError(f"GitHub App authentication failed: {exc}") from exc
+        raise RepositoryError(
+            f"GitHub App authentication failed: {exc}") from exc
     if not identity:
-        raise RepositoryError("GitHub authentication is required to create a pull request")
+        raise RepositoryError(
+            "GitHub authentication is required to create a pull request")
     endpoint = f"https://api.github.com/repos/{quote(owner, safe='')}/{quote(repository, safe='')}/pulls"
     async with httpx.AsyncClient(timeout=30) as client:
         response = await client.post(

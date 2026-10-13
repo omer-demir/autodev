@@ -63,4 +63,5 @@ def test_snapshot_service_deletes_all_task_revision_objects():
     service = WorkspaceSnapshotService(backend=backend)
     service.delete_task(task_id)
 
-    assert {item.args[0] for item in backend.delete.call_args_list} == set(keys)
+    assert {item.args[0]
+            for item in backend.delete.call_args_list} == set(keys)

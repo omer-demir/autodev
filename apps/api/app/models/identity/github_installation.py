@@ -21,6 +21,7 @@ class GitHubInstallation(SQLModel, table=True):
     account_login: str = Field(index=True)
     account_type: str = "User"
     repository_selection: str = "selected"
-    permissions: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    permissions: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=now)
     updated_at: datetime = Field(default_factory=now)

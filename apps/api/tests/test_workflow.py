@@ -7,8 +7,13 @@ import pytest
 from sqlmodel import Session, select
 
 from app.database import create_db_and_tables, engine
-from app.models import Event, Project, Sandbox, Task
-from app.workflow import _pull_request_body, _run_executable_workflow, cleanup_sandbox
+from app.models import Event, Project, Sandbox, Task, TaskArtifact
+from app.workflow import (
+    _pull_request_body,
+    _run_executable_workflow,
+    _save_artifact,
+    cleanup_sandbox,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -55,6 +60,54 @@ def test_pull_request_body_contains_review_and_governance_evidence():
     assert "Security findings: 0 high, 0 medium, 1 low" in body
     assert "Requested by: `requester@example.com`" in body
     assert "Approved by: `approver@example.com`" in body
+
+
+@pytest.mark.asyncio
+async def test_save_artifact_publishes_realtime_update():
+    suffix = uuid4().hex
+    task_id = f"TASK-ARTIFACT-{suffix}"
+    with Session(engine) as session:
+        project = Project(
+            name=f"Artifact {suffix}",
+            repository_path=f"/tmp/artifact-{suffix}",
+            source_type="empty",
+        )
+        session.add(project)
+        session.commit()
+        session.refresh(project)
+        session.add(Task(
+            id=task_id,
+            project_id=project.id,
+            title="Live artifacts",
+            description="Publish artifact updates",
+            organization_id="local",
+        ))
+        session.commit()
+
+        with (
+            patch("app.workflow.evidence_provider.write"),
+            patch(
+                "app.workflow.event_hub.publish", new=AsyncMock()
+            ) as publish,
+        ):
+            await _save_artifact(
+                session,
+                task_id,
+                "plan",
+                {"requirements": [], "steps": [], "acceptance": []},
+            )
+
+        artifact = session.exec(select(TaskArtifact).where(
+            TaskArtifact.task_id == task_id,
+            TaskArtifact.kind == "plan",
+        )).one()
+        assert artifact.content["steps"] == []
+        publish.assert_awaited_once_with({
+            "event": "artifact.updated",
+            "task_id": task_id,
+            "organization_id": "local",
+            "kind": "plan",
+        })
 
 
 @pytest.mark.asyncio
@@ -192,6 +245,9 @@ async def test_executable_workflow_hands_off_artifacts_and_uses_stage_sandbox():
         runtime_calls.append(kwargs)
         return f"completed {kwargs['stage_context']['stage_id']}"
 
+    async def save_artifact(_session, _task_id, kind, content):
+        saved_artifacts[kind] = dict(content)
+
     with (
         patch("app.workflow.get_definition", side_effect=lambda kind, identifier: {
             "data": definitions[identifier]
@@ -202,12 +258,10 @@ async def test_executable_workflow_hands_off_artifacts_and_uses_stage_sandbox():
         ),
         patch("app.workflow.AgentRuntime.run", new=run_agent),
         patch("app.workflow.record_event", new=AsyncMock()),
-        patch(
-            "app.workflow._save_artifact",
-            side_effect=lambda session, task_id, kind, content: saved_artifacts.update(
-                {kind: dict(content)}
-            ),
-        ),
+        patch("app.workflow._save_artifact", new=save_artifact),
+        patch("app.workflow._collect_changes", return_value={
+            "files": [], "diff": "", "status": "",
+        }),
         patch(
             "app.workflow.sandbox_provider.create",
             new=AsyncMock(

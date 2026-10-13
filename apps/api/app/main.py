@@ -154,7 +154,8 @@ def _connector_payload(connector: Connector) -> dict:
 
 
 def _github_manifest_app_name(display_name: str, connector_id: str) -> str:
-    prefix = "".join(character for character in display_name if character.isalnum())
+    prefix = "".join(
+        character for character in display_name if character.isalnum())
     return f"{(prefix[:20] or 'AutoDev')}-{connector_id[-12:].lower()}"
 
 
@@ -556,9 +557,11 @@ def create_project(
                 payload.connector_id, principal.organization_id
             )
             if not connector or connector.provider != "github":
-                raise HTTPException(422, "The selected GitHub connection is unavailable")
+                raise HTTPException(
+                    422, "The selected GitHub connection is unavailable")
             if connector.status != "ACTIVE":
-                raise HTTPException(409, "Install the selected GitHub connection first")
+                raise HTTPException(
+                    409, "Install the selected GitHub connection first")
             owner, _ = parse_github_url(payload.repository_url)
             if not github_credentials.get_installation(
                 principal.organization_id,
@@ -1341,7 +1344,8 @@ async def connector_repositories(
     if not connector:
         raise HTTPException(404, "Connector not found")
     if connector.provider != "github":
-        raise HTTPException(501, f"{connector.provider} discovery is not implemented")
+        raise HTTPException(
+            501, f"{connector.provider} discovery is not implemented")
     try:
         repositories = await list_github_repositories(
             account,
@@ -1366,7 +1370,8 @@ async def verify_connector(
     if not connector:
         raise HTTPException(404, "Connector not found")
     if connector.provider != "github":
-        raise HTTPException(501, f"{connector.provider} verification is not implemented")
+        raise HTTPException(
+            501, f"{connector.provider} verification is not implemented")
     try:
         async with httpx.AsyncClient(timeout=20) as client:
             response = await client.get(
@@ -1379,7 +1384,8 @@ async def verify_connector(
             )
             response.raise_for_status()
     except (httpx.HTTPError, RuntimeError) as exc:
-        raise HTTPException(502, f"GitHub connection verification failed: {exc}") from exc
+        raise HTTPException(
+            502, f"GitHub connection verification failed: {exc}") from exc
     return {"verified": True, "app": response.json().get("slug"), "status": connector.status}
 
 
@@ -1394,7 +1400,8 @@ def delete_connector(
         Project.connector_id == connector_id,
     )).first()
     if in_use:
-        raise HTTPException(409, "Remove repositories using this connection first")
+        raise HTTPException(
+            409, "Remove repositories using this connection first")
     if not github_credentials.delete_connector(
         connector_id, principal.organization_id
     ):
@@ -1502,7 +1509,8 @@ async def github_manifest_callback(
         github_credentials.set_connector_status(
             connector_id, principal.organization_id, "FAILED"
         )
-        raise HTTPException(502, f"GitHub App registration failed: {exc}") from exc
+        raise HTTPException(
+            502, f"GitHub App registration failed: {exc}") from exc
     redirect = RedirectResponse(
         f"{get_settings().web_app_url.rstrip('/')}/connectors?github=app-created&connector={quote(connector.id, safe='')}",
         status_code=303,
@@ -1563,7 +1571,8 @@ async def connector_installation_callback(
         else None
     )
     if not context or context.get("flow") != "github_install":
-        raise HTTPException(400, "GitHub installation state is invalid or expired")
+        raise HTTPException(
+            400, "GitHub installation state is invalid or expired")
     connector_id = str(context.get("connector_id") or "")
     try:
         app_configuration = github_credentials.connector_app(
@@ -1619,7 +1628,8 @@ async def connector_installation_callback(
             connector_id,
         )
     except (httpx.HTTPError, RuntimeError) as exc:
-        raise HTTPException(502, f"GitHub App installation failed: {exc}") from exc
+        raise HTTPException(
+            502, f"GitHub App installation failed: {exc}") from exc
     redirect = RedirectResponse(
         f"{get_settings().web_app_url.rstrip('/')}/connectors?github=installed&connector={quote(connector_id, safe='')}",
         status_code=303,
@@ -1731,7 +1741,8 @@ async def github_app_callback(
         token_response.raise_for_status()
         user_token = token_response.json().get("access_token")
         if not user_token:
-            raise HTTPException(400, "GitHub did not issue a user access token")
+            raise HTTPException(
+                400, "GitHub did not issue a user access token")
         installations_response = await client.get(
             "https://api.github.com/user/installations",
             headers={

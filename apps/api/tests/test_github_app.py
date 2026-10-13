@@ -104,7 +104,8 @@ async def test_installation_token_is_scoped_and_attributed():
         '{"permissions":{"contents":"write","pull_requests":"write"},'
         '"repositories":["repository"]}'
     )
-    assert "short-lived-token" not in str(store.status(organization_id, owner_id))
+    assert "short-lived-token" not in str(
+        store.status(organization_id, owner_id))
 
 
 def test_installation_callback_verifies_user_access_before_binding():
@@ -127,7 +128,8 @@ def test_installation_callback_verifies_user_access_before_binding():
         if request.url.path == "/users/autodev-test[bot]":
             assert request.headers["authorization"] == "Bearer temporary-user-token"
             return httpx.Response(200, json={"id": 4567})
-        raise AssertionError(f"Unexpected GitHub request: {request.method} {request.url}")
+        raise AssertionError(
+            f"Unexpected GitHub request: {request.method} {request.url}")
 
     def client_factory(*args, **kwargs):
         return async_client(transport=httpx.MockTransport(handler))
@@ -138,12 +140,14 @@ def test_installation_callback_verifies_user_access_before_binding():
         patch("app.main.httpx.AsyncClient", side_effect=client_factory),
         TestClient(app) as client,
     ):
-        start = client.get("/api/connectors/github/app/start", follow_redirects=False)
+        start = client.get("/api/connectors/github/app/start",
+                           follow_redirects=False)
         assert start.status_code in {302, 307}
         state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
         callback = client.get(
             "/api/connectors/github/app/callback",
-            params={"code": "temporary-code", "installation_id": 9876, "state": state},
+            params={"code": "temporary-code",
+                    "installation_id": 9876, "state": state},
             follow_redirects=False,
         )
 

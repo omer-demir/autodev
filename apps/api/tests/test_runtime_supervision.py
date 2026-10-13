@@ -171,7 +171,7 @@ async def test_microsoft_provider_enforces_per_ring_rate_limit():
 
 
 @pytest.mark.asyncio
-async def test_microsoft_provider_demotes_and_holds_breach_breaker():
+async def test_microsoft_provider_demotes_and_holds_repeated_ring_escalation():
     provider = MicrosoftAgentHypervisorProvider(
         breach_detector=RingBreachDetector(baseline_rate=0.01),
     )
@@ -181,9 +181,14 @@ async def test_microsoft_provider_demotes_and_holds_breach_breaker():
         trust_score=0.8,
         phases=[{"id": "implementation"}],
     )
-    action = ActionSpec(capability="filesystem.write", read_only=False)
+    action = ActionSpec(
+        capability="pull_request.create",
+        read_only=False,
+        reversible=False,
+    )
 
-    await provider.before_action(handle, action)
+    with pytest.raises(Exception, match="insufficient for required ring"):
+        await provider.before_action(handle, action)
     with pytest.raises(Exception, match="circuit breaker tripped"):
         await provider.before_action(handle, action)
 
@@ -192,6 +197,28 @@ async def test_microsoft_provider_demotes_and_holds_breach_breaker():
     assert participant.ring is ExecutionRing.RING_3_SANDBOX
     with pytest.raises(Exception, match="circuit breaker tripped"):
         await provider.before_action(handle, action)
+
+
+@pytest.mark.asyncio
+async def test_microsoft_provider_does_not_trip_breaker_for_same_tier_writes():
+    provider = MicrosoftAgentHypervisorProvider(
+        breach_detector=RingBreachDetector(baseline_rate=0.01),
+    )
+    handle = await provider.start(
+        task_id="TASK-WRITE-BURST",
+        agent_id="did:local:developer",
+        trust_score=0.8,
+        phases=[{"id": "implementation"}],
+    )
+    action = ActionSpec(capability="filesystem.write", read_only=False)
+
+    for _ in range(5):
+        decision = await provider.before_action(handle, action)
+        assert decision.allowed is True
+
+    assert provider.breach_detector.is_breaker_tripped(
+        handle.agent_id, handle.session_id
+    ) is False
 
 
 @pytest.mark.asyncio

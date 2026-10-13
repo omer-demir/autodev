@@ -33,7 +33,8 @@ def state_from_location(location: str) -> str:
 def test_manifest_connection_installation_and_repository_binding():
     create_db_and_tables()
     settings = connector_settings()
-    private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    private_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048)
     pem = private_key.private_bytes(
         serialization.Encoding.PEM,
         serialization.PrivateFormat.PKCS8,
@@ -89,7 +90,8 @@ def test_manifest_connection_installation_and_repository_binding():
                 "updated_at": "2026-10-12T12:00:00Z",
                 "owner": {"login": "acme"},
             }]})
-        raise AssertionError(f"Unexpected GitHub request: {request.method} {request.url}")
+        raise AssertionError(
+            f"Unexpected GitHub request: {request.method} {request.url}")
 
     def client_factory(*args, **kwargs):
         return real_async_client(transport=httpx.MockTransport(handler))
@@ -107,7 +109,8 @@ def test_manifest_connection_installation_and_repository_binding():
             params={"name": "AutoDev Test"},
         )
         assert start.status_code == 200
-        action = html.unescape(re.search(r'action="([^"]+)"', start.text).group(1))
+        action = html.unescape(
+            re.search(r'action="([^"]+)"', start.text).group(1))
         state = state_from_location(action)
         manifest_value = html.unescape(
             re.search(r'name="manifest" value="([^"]+)"', start.text).group(1)
@@ -171,7 +174,8 @@ def test_manifest_connection_installation_and_repository_binding():
 
         connections = client.get("/api/connectors")
         assert connections.status_code == 200
-        selected = next(item for item in connections.json() if item["id"] == connector_id)
+        selected = next(item for item in connections.json()
+                        if item["id"] == connector_id)
         assert selected["status"] == "ACTIVE"
         assert selected["account_login"] == "acme"
         assert "client_secret" not in json.dumps(selected)

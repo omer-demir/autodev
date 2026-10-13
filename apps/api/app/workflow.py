@@ -166,7 +166,7 @@ async def update_phase(session: Session, task: Task, status: TaskStatus, phase: 
     })
     if transition.supervision["termination"]:
         content["termination"] = transition.supervision["termination"]
-    _save_artifact(session, task.id, "runtime-supervision", content)
+    await _save_artifact(session, task.id, "runtime-supervision", content)
     await record_event(
         session,
         task.id,
@@ -225,7 +225,12 @@ async def cleanup_sandbox(session: Session, task_id: str, reason: str) -> bool:
         return False
 
 
-def _save_artifact(session: Session, task_id: str, kind: str, content: dict[str, Any]) -> None:
+async def _save_artifact(
+    session: Session,
+    task_id: str,
+    kind: str,
+    content: dict[str, Any],
+) -> None:
     artifact = session.exec(
         select(TaskArtifact).where(TaskArtifact.task_id ==
                                    task_id, TaskArtifact.kind == kind)
@@ -237,6 +242,13 @@ def _save_artifact(session: Session, task_id: str, kind: str, content: dict[str,
     session.add(artifact)
     session.commit()
     evidence_provider.write(task_id, kind, content)
+    task = session.get(Task, task_id)
+    await event_hub.publish({
+        "event": "artifact.updated",
+        "task_id": task_id,
+        "organization_id": task.organization_id if task else None,
+        "kind": kind,
+    })
 
 
 async def request_runtime_elevation(
@@ -273,7 +285,7 @@ async def request_runtime_elevation(
     elevations = list(content.get("elevations", []))
     elevations.append(evidence)
     content["elevations"] = elevations
-    _save_artifact(session, task.id, "runtime-supervision", content)
+    await _save_artifact(session, task.id, "runtime-supervision", content)
     await record_event(
         session,
         task.id,
@@ -377,7 +389,7 @@ async def _run_executable_workflow(
         "stages": {},
     }
     persistence_lock = asyncio.Lock()
-    _save_artifact(session, task.id, "workflow-run", run_state)
+    await _save_artifact(session, task.id, "workflow-run", run_state)
 
     async def run_stage(stage: dict[str, Any]) -> tuple[dict[str, Any], str]:
         stage_id = str(stage["id"])
@@ -473,6 +485,8 @@ async def _run_executable_workflow(
             if not primary_stage:
                 await sandbox_provider.kill(stage_container_id)
         async with persistence_lock:
+            changes = await asyncio.to_thread(_collect_changes, workspace)
+            await _save_artifact(session, task.id, "changes", changes)
             await record_event(
                 session,
                 task.id,
@@ -503,7 +517,7 @@ async def _run_executable_workflow(
                         "summary": summary,
                     }
                     artifact_values[output_id] = value
-                    _save_artifact(session, task.id, output_id, value)
+                    await _save_artifact(session, task.id, output_id, value)
                 run_state["stages"][stage_id] = {
                     "status": "completed",
                     "wave": wave_index,
@@ -519,14 +533,14 @@ async def _run_executable_workflow(
                     },
                 }
                 final_message = summary
-            _save_artifact(session, task.id, "workflow-run", run_state)
+            await _save_artifact(session, task.id, "workflow-run", run_state)
     except Exception as exc:
         run_state["status"] = "failed"
         run_state["error"] = str(exc)
-        _save_artifact(session, task.id, "workflow-run", run_state)
+        await _save_artifact(session, task.id, "workflow-run", run_state)
         raise
     run_state["status"] = "completed"
-    _save_artifact(session, task.id, "workflow-run", run_state)
+    await _save_artifact(session, task.id, "workflow-run", run_state)
     return final_message
 
 
@@ -659,7 +673,8 @@ async def run_task(task_id: str) -> None:
                     "Commit requires scoped approval",
                 ],
             }
-            _save_artifact(session, task_id, "rpi-plan", plan)
+            await _save_artifact(session, task_id, "rpi-plan", plan)
+            await _save_artifact(session, task_id, "plan", plan)
             await record_event(
                 session, task_id, "rpi.plan", "RPI plan recorded",
                 "Research, implement, validate, and review against explicit acceptance checks",
@@ -677,6 +692,16 @@ async def run_task(task_id: str) -> None:
                     session.add(Message(task_id=task_id,
                                 role="assistant", content=detail))
                     session.commit()
+                if (
+                    event_type == "tool.completed"
+                    and (data or {}).get("capability") == "repository.write"
+                ):
+                    live_changes = await asyncio.to_thread(
+                        _collect_changes, workspace
+                    )
+                    await _save_artifact(
+                        session, task_id, "changes", live_changes
+                    )
 
             async def steering() -> list[str]:
                 session.expire_all()
@@ -784,7 +809,7 @@ async def run_task(task_id: str) -> None:
 
             changes = await asyncio.to_thread(_collect_changes, workspace)
             files_changed = len(changes["files"])
-            _save_artifact(session, task_id, "changes", changes)
+            await _save_artifact(session, task_id, "changes", changes)
             research_events = session.exec(
                 select(Event).where(
                     Event.task_id == task_id,
@@ -802,8 +827,8 @@ async def run_task(task_id: str) -> None:
                     for event in research_events
                 ),
             }
-            _save_artifact(session, task_id, "rpi-research", research)
-            _save_artifact(session, task_id, "rpi-implementation", {
+            await _save_artifact(session, task_id, "rpi-research", research)
+            await _save_artifact(session, task_id, "rpi-implementation", {
                 "summary": final_message,
                 "files": changes["files"],
                 "status": changes["status"],
@@ -836,18 +861,18 @@ async def run_task(task_id: str) -> None:
                 "commands": [result.get("arguments", []) for result in test_results],
                 "exit_code": test_results[-1].get("exit_code") if test_results else None,
             }
-            _save_artifact(session, task_id, "tests", tests)
+            await _save_artifact(session, task_id, "tests", tests)
             await record_event(session, task_id, "test.completed", "Tests completed", tests["output"][-2000:], "info" if tests["exit_code"] in {0, None} else "warning")
 
             await update_phase(session, task, TaskStatus.SECURITY, "Security", 78)
             security = await _run_security(workspace)
-            _save_artifact(session, task_id, "security", security)
+            await _save_artifact(session, task_id, "security", security)
             scanner_summary = ", ".join(
                 f"{name}: {status}" for name, status in security["scanners"].items())
             await record_event(session, task_id, "security.completed", "Security scans completed", scanner_summary, "warning" if security["medium"] else "info")
 
             await update_phase(session, task, TaskStatus.REVIEW, "Review", 88)
-            _save_artifact(session, task_id, "plan", plan)
+            await _save_artifact(session, task_id, "plan", plan)
             review = {
                 "summary": final_message,
                 "changed_files": len(changes["files"]),
@@ -865,7 +890,7 @@ async def run_task(task_id: str) -> None:
                 },
                 "acceptance": plan["acceptance"],
             }
-            _save_artifact(session, task_id, "rpi-review", review)
+            await _save_artifact(session, task_id, "rpi-review", review)
             await record_event(
                 session, task_id, "rpi.review", "RPI review evidence recorded",
                 f"Tests: {tests['passed']} passed, {tests['failed']} failed; security findings: {security['medium']}",
@@ -1036,7 +1061,8 @@ def _pull_request_body(
     scanner_summary = ", ".join(
         f"{name}: {status}" for name, status in scanners.items()
     ) or "No scanner evidence recorded"
-    description = (task.description or "No task description provided.").strip()[:2000]
+    description = (task.description or "No task description provided.").strip()[
+        :2000]
     return "\n".join([
         "## Summary",
         "",
@@ -1181,5 +1207,5 @@ async def complete_publication(
                     "approved_by": approved_by,
                 },
             )
-        _save_artifact(session, task_id, "publication", result)
+        await _save_artifact(session, task_id, "publication", result)
         return result

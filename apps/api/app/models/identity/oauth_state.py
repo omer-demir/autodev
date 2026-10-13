@@ -12,5 +12,6 @@ class OAuthState(SQLModel, table=True):
     organization_id: str = Field(index=True)
     user_id: str = Field(index=True)
     expires_at: datetime = Field(index=True)
-    context: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    context: dict[str, Any] = Field(
+        default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=now)

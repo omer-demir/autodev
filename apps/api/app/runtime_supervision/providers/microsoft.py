@@ -143,13 +143,13 @@ class MicrosoftAgentHypervisorProvider(RuntimeSupervisorProvider):
             check.allowed = command_check.allowed
             check.reason = command_check.reason
 
-        # The upstream burst detector estimates the rate from the interval
-        # between the first two calls. Two normal back-to-back reads can
-        # therefore appear as a critical burst and permanently trip a session.
-        # Read-only actions remain ring-checked and rate-limited, but only
-        # mutating/privileged calls participate in the breach circuit breaker.
+        # Same-tier tool volume is governed by the per-ring rate limiter. The
+        # upstream breach detector estimates early rates from only two samples,
+        # so recording normal back-to-back writes can falsely and permanently
+        # trip a session. Reserve breach detection for actual upward ring
+        # attempts; all actions remain ring-checked and rate-limited.
         breach = None
-        if not action.read_only:
+        if descriptor.required_ring < effective_ring:
             breach = self.breach_detector.record_call(
                 handle.agent_id,
                 handle.session_id,

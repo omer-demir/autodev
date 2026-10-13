@@ -101,6 +101,7 @@ Create an editable architecture drawing titled **“Declarative control plane + 
 Draw three horizontal layers:
 
 **Layer 1 — Versioned declarations**
+
 - Agents
 - Skills
 - Workflows
@@ -110,6 +111,7 @@ Draw three horizontal layers:
 - Evaluation suites
 
 **Layer 2 — Deterministic control plane**
+
 - Task / session / execution job
 - Workflow controller
 - Governance provider
@@ -118,6 +120,7 @@ Draw three horizontal layers:
 - Approval controller
 
 **Layer 3 — Bounded execution and proof**
+
 - Docker or Azure sandbox
 - Isolated Git worktree
 - Durable artifacts and events
@@ -239,6 +242,7 @@ Use a simple three-column matrix: **Integrated**, **Partial / local equivalent**
 Include representative examples:
 
 **Integrated**
+
 - Stateless policy enforcement
 - Agent DID and Ed25519 manifest verification
 - Per-ring rate limiting
@@ -246,6 +250,7 @@ Include representative examples:
 - PromptDefense promotion gate
 
 **Partial / local equivalent**
+
 - Session isolation
 - Score-derived execution rings
 - TTL elevation for Rings 1/2
@@ -253,6 +258,7 @@ Include representative examples:
 - Audit and causal correlation
 
 **Not integrated**
+
 - Full conformance suite / certification
 - Ring 0 and SRE-witness elevation
 - External trust consensus

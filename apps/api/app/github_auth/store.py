@@ -159,7 +159,8 @@ class GitHubCredentialStore:
     ) -> Connector:
         required = ("id", "slug", "client_id", "client_secret", "pem")
         if any(not manifest.get(item) for item in required):
-            raise RuntimeError("GitHub returned an incomplete App configuration")
+            raise RuntimeError(
+                "GitHub returned an incomplete App configuration")
         with Session(engine) as session:
             connector = session.get(Connector, connector_id)
             if not connector or connector.organization_id != organization_id:
@@ -273,7 +274,8 @@ class GitHubCredentialStore:
                 id=state_id,
                 organization_id=organization_id,
                 user_id=user_id,
-                expires_at=datetime.now(UTC) + timedelta(seconds=expires_in_seconds),
+                expires_at=datetime.now(
+                    UTC) + timedelta(seconds=expires_in_seconds),
                 context=context or {},
             ))
             session.commit()
@@ -435,7 +437,8 @@ class GitHubCredentialStore:
                     GitHubInstallation.connector_id == connector_id
                 )
             else:
-                statement = statement.where(GitHubInstallation.owner_id == owner_id)
+                statement = statement.where(
+                    GitHubInstallation.owner_id == owner_id)
             return list(session.exec(statement).all())
 
     def get_installation(

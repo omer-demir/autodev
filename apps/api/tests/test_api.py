@@ -526,7 +526,8 @@ def test_pull_request_publication_requires_authentication_before_approval(tmp_pa
 
         with patch(
             "app.main.validate_publication",
-            side_effect=RepositoryError("Disable pull request creation to push with SSH"),
+            side_effect=RepositoryError(
+                "Disable pull request creation to push with SSH"),
         ):
             response = client.post(
                 f"/api/tasks/{task_id}/publish",
@@ -562,7 +563,8 @@ def test_publication_failure_keeps_approval_pending(tmp_path):
                 id=approval_id,
                 task_id=task_id,
                 action="repository.publish",
-                scope={"branch": "feature/retry", "create_pull_request": False},
+                scope={"branch": "feature/retry",
+                       "create_pull_request": False},
             ))
             session.commit()
 

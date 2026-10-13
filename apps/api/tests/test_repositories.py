@@ -298,7 +298,8 @@ async def test_publish_github_repository_prefers_installation_token(tmp_path):
     credentials.assert_awaited_once_with(
         "local", None, "acme", "repo", write=True
     )
-    assert not any(call[0][:3] == ["remote", "set-url", "--push"] for call in calls)
+    assert not any(call[0][:3] == ["remote", "set-url", "--push"]
+                   for call in calls)
     push = next(item for item in calls if item[0][0] == "push")
     assert push[1] is not None
     assert push[1]["GITHUB_TOKEN"] == "installation-token"
