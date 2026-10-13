@@ -1,6 +1,6 @@
 "use client";
 
-import { FolderGit2, Github, Globe2, LockKeyhole, Search, X } from "lucide-react";
+import { FilePlus2, FolderGit2, Github, Globe2, LockKeyhole, Search, X } from "lucide-react";
 import { useState } from "react";
 import { API_URL, api } from "@/lib/api";
 import type { GitHubRepository, Project, RuntimeStatus } from "@/lib/types";
@@ -12,7 +12,8 @@ interface Props {
 }
 
 export function RepositoryConnectorDialog({ runtime, onClose, onConnected }: Props) {
-  const [source, setSource] = useState<"local" | "github">("github");
+  const [source, setSource] = useState<"empty" | "local" | "github">("github");
+  const [name, setName] = useState("");
   const [path, setPath] = useState("");
   const [url, setUrl] = useState("");
   const [owner, setOwner] = useState(runtime?.github_login || "");
@@ -45,6 +46,21 @@ export function RepositoryConnectorDialog({ runtime, onClose, onConnected }: Pro
       const name = path.replace(/\/$/, "").split("/").at(-1) || "Local repository";
       onConnected(await api.createProject({
         name, repository_path: path, source_type: "local",
+        repository_url: null, default_branch: null,
+      }));
+    } catch (reason) {
+      setError(String(reason));
+      setBusy(false);
+    }
+  }
+
+  async function addEmpty(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      onConnected(await api.createProject({
+        name, repository_path: "", source_type: "empty",
         repository_url: null, default_branch: null,
       }));
     } catch (reason) {
@@ -87,15 +103,20 @@ export function RepositoryConnectorDialog({ runtime, onClose, onConnected }: Pro
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={(event) => { if (event.currentTarget === event.target) onClose(); }}>
     <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-white/[.09] bg-[#101620] p-6 shadow-2xl">
       <div className="flex justify-between">
-        <div><p className="text-xs font-medium text-teal-300">REPOSITORY CONNECTOR</p><h2 className="mt-1 text-xl font-semibold">Choose real source code</h2></div>
+        <div><p className="text-xs font-medium text-teal-300">WORKSPACE SOURCE</p><h2 className="mt-1 text-xl font-semibold">Choose where the task starts</h2></div>
         <button onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-white/[.06] hover:text-white"><X className="size-4" /></button>
       </div>
       <div className="mt-5 flex rounded-lg bg-black/20 p-1">
         <button onClick={() => setSource("github")} className={`flex-1 rounded-md py-2 text-xs ${source === "github" ? "bg-white/[.08] text-white" : "text-slate-500"}`}><Github className="mr-2 inline size-3.5" />GitHub</button>
         <button onClick={() => setSource("local")} className={`flex-1 rounded-md py-2 text-xs ${source === "local" ? "bg-white/[.08] text-white" : "text-slate-500"}`}><FolderGit2 className="mr-2 inline size-3.5" />Local Git repository</button>
+        <button onClick={() => setSource("empty")} className={`flex-1 rounded-md py-2 text-xs ${source === "empty" ? "bg-white/[.08] text-white" : "text-slate-500"}`}><FilePlus2 className="mr-2 inline size-3.5" />Empty workspace</button>
       </div>
 
-      {source === "local" ? <form onSubmit={addLocal} className="mt-5">
+      {source === "empty" ? <form onSubmit={addEmpty} className="mt-5">
+        <label className="text-xs text-slate-400">Workspace name<input required minLength={2} value={name} onChange={(event) => setName(event.target.value)} placeholder="New product discovery" className="mt-2 w-full rounded-lg border border-white/[.09] bg-black/20 px-3 py-2.5 text-sm outline-none focus:border-teal-300/50" /></label>
+        <p className="mt-3 text-xs leading-5 text-slate-600">Starts an isolated Git workspace with no remote or default branch. Use an assessment task to capture research and context, then continue the durable session with another promoted agent.</p>
+        <button disabled={busy} className="mt-5 rounded-lg bg-teal-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">Create empty workspace</button>
+      </form> : source === "local" ? <form onSubmit={addLocal} className="mt-5">
         <label className="text-xs text-slate-400">Absolute path visible to the control plane<input required value={path} onChange={(event) => setPath(event.target.value)} placeholder="/workspaces/my-repository" className="mt-2 w-full rounded-lg border border-white/[.09] bg-black/20 px-3 py-2.5 font-mono text-sm outline-none focus:border-teal-300/50" /></label>
         <p className="mt-3 text-xs leading-5 text-slate-600">The Workbench clones this repository into an isolated task worktree. Your original checkout is not modified.</p>
         <button disabled={busy} className="mt-5 rounded-lg bg-teal-300 px-4 py-2 text-sm font-semibold text-slate-950 disabled:opacity-50">Connect local repository</button>
@@ -111,10 +132,10 @@ export function RepositoryConnectorDialog({ runtime, onClose, onConnected }: Pro
 
         <section className="rounded-xl border border-white/[.07] p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><h3 className="text-sm font-medium">Private repositories and account browsing</h3><p className="mt-1 text-xs text-slate-600">Credentials stay in control-plane memory and are never mounted into sandboxes.</p></div>
-            {runtime?.github_authenticated ? <div className="flex items-center gap-2"><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-300">{runtime.github_login ? `@${runtime.github_login}` : "Token connected"}</span>{runtime.github_auth_method === "oauth" && <button disabled={busy} onClick={disconnect} className="text-xs text-slate-500 hover:text-white">Disconnect</button>}</div> : runtime?.github_oauth_configured ? <a href={`${API_URL}/api/connectors/github/oauth/start`} className="inline-flex items-center gap-2 rounded-lg border border-white/[.09] bg-white/[.05] px-4 py-2 text-sm hover:border-teal-300/30"><Github className="size-4" />Connect GitHub</a> : <span className="rounded-lg border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-200">OAuth setup required</span>}
+            <div><h3 className="text-sm font-medium">Private repositories and governed publication</h3><p className="mt-1 text-xs text-slate-600">GitHub App tokens are repository-scoped, expire after one hour, and are never mounted into sandboxes.</p></div>
+            {runtime?.github_authenticated ? <div className="flex items-center gap-2"><span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs text-emerald-300">{runtime.github_auth_method === "github_app" ? `${runtime.github_app_slug || "AutoDev"} · ${runtime.github_login}` : runtime.github_login ? `@${runtime.github_login}` : "Token connected"}</span>{["github_app", "oauth"].includes(runtime.github_auth_method || "") && <button disabled={busy} onClick={disconnect} className="text-xs text-slate-500 hover:text-white">Disconnect</button>}</div> : runtime?.github_app_configured ? <a href={`${API_URL}/api/connectors/github/app/start`} className="inline-flex items-center gap-2 rounded-lg border border-teal-300/20 bg-teal-300/[.06] px-4 py-2 text-sm text-teal-100 hover:border-teal-300/40"><Github className="size-4" />Install AutoDev GitHub App</a> : runtime?.github_oauth_configured ? <a href={`${API_URL}/api/connectors/github/oauth/start`} className="inline-flex items-center gap-2 rounded-lg border border-white/[.09] bg-white/[.05] px-4 py-2 text-sm hover:border-teal-300/30"><Github className="size-4" />Connect GitHub</a> : <span className="rounded-lg border border-amber-400/15 bg-amber-400/5 px-3 py-2 text-xs text-amber-200">GitHub App setup required</span>}
           </div>
-          {!runtime?.github_oauth_configured && !runtime?.github_authenticated && <p className="mt-3 text-xs leading-5 text-slate-600">Configure a GitHub OAuth App, or provide a fine-grained token through <span className="font-mono text-slate-400">WORKBENCH_GITHUB_TOKEN</span>.</p>}
+          {!runtime?.github_app_configured && !runtime?.github_authenticated && <p className="mt-3 text-xs leading-5 text-slate-600">Register the AutoDev GitHub App for bot-attributed commits and pull requests without sharing user SSH keys or personal tokens. OAuth and <span className="font-mono text-slate-400">WORKBENCH_GITHUB_TOKEN</span> remain compatibility fallbacks.</p>}
         </section>
 
         <form onSubmit={searchGitHub} className="flex gap-2">

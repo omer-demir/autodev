@@ -1,0 +1,34 @@
+name: Ideation
+version: 1.0.0
+description: Researches an idea, records architectural choices, and prepares downstream decision context.
+status: active
+default_mode: change
+phases:
+  - { id: planning, status: PLANNING, label: Ideation, progress: 15 }
+  - {
+      id: implementation,
+      status: IMPLEMENTATION,
+      label: Synthesis,
+      progress: 35,
+    }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: sequential, max_parallel: 1 }
+stages:
+  - id: research
+    agent: did:local:researcher
+    responsibility: Research the request, repository context, constraints, users, risks, and unresolved questions.
+    inputs: [request, messages, workspace]
+    outputs: [research-brief]
+    handoff: { include: [summary, artifacts, messages, workspace] }
+  - id: architecture-decisions
+    agent: did:local:architect
+    responsibility: Turn the research into alternatives and decisions with consequences; in change mode, write proposed ADRs under the repository's docs/adr convention.
+    inputs: [request, research-brief, workspace]
+    outputs: [architecture-decisions]
+    handoff: { include: [summary, artifacts, workspace] }
+  - id: decision-context
+    agent: did:local:researcher
+    responsibility: Synthesize a recommended decision, open questions, and concise downstream context.
+    inputs: [request, research-brief, architecture-decisions]
+    outputs: [decision-record, downstream-context]
+    handoff: { include: [summary, artifacts] }

@@ -6,7 +6,7 @@ from sqlmodel import Session, col, select
 from .agent_identity import AgentIdentityError, agent_identity_service
 from .auth import Principal
 from .models import Approval, Event, Message, Sandbox, Task, TaskArtifact, TaskStatus
-from .registry import RegistryError, get_definition
+from .registry import RegistryError, agent_can_execute, get_definition
 from .workflow import record_event, start_task
 
 
@@ -97,9 +97,11 @@ async def continue_durable_session(
             definition = get_definition("agents", identifier)["data"]
         except RegistryError as exc:
             raise SessionServiceError(422, str(exc)) from exc
-        if definition.get("status") != "promoted":
+        if not agent_can_execute(definition):
             raise SessionServiceError(
-                409, "Only promoted agent versions can continue sessions"
+                409,
+                "Only promoted agents or agents with an administrator-approved "
+                "evaluation bypass can continue sessions",
             )
         try:
             agent_identity_service.verify(

@@ -5,23 +5,25 @@
 The Workbench supports two authentication modes:
 
 - `local` provisions a local administrator and organization for trusted workstation use.
-- `oidc` validates issuer, audience, signature, and required JWT claims through configured JWKS, resolves organization membership, and applies role permissions.
+- `oidc` provides authorization-code login with PKCE, validates issuer, audience, signature, nonce, and required JWT claims through configured JWKS, creates an opaque server-side session, resolves organization membership, and applies role permissions.
 
 Projects, tasks, approvals, datasets, evaluation runs, agent identity records, marketplace entries, durable sessions, and their API queries carry organization scope. Approval records retain requester and approver identity. The built-in roles are viewer, developer, reviewer, and admin.
 
-This is a foundation for multi-user operation, not yet a complete hosted tenancy boundary. Registry YAML and prompt assets are deployment-wide files rather than organization-owned records; the GitHub OAuth connector still has a process-local credential slot; and membership administration is API/provisioning-oriented rather than a complete admin experience. Do not claim hostile-tenant isolation until those shared resources, WebSocket/MCP authorization tests, credential storage, and deployment boundaries have received a dedicated production security review.
+This is a foundation for multi-user operation, not yet a complete hostile-tenant boundary. Registry YAML and prompt assets remain deployment-wide files rather than organization-owned records, and deployment boundaries still require a dedicated production security review. Membership administration and core WebSocket/MCP role tests are implemented, while a generated authorization inventory covering every route and tool remains roadmap work.
 
 ## Implemented identity model
 
 Use an OIDC provider such as Microsoft Entra ID or another organization identity provider. The current implementation:
 
-1. Accepts a bearer token or `workbench_access_token` cookie.
-2. Validates the token through configured issuer, audience, algorithms, and JWKS URL.
+1. Redirects browser users through authorization code with PKCE, state, and nonce validation, or accepts an OIDC bearer token for API/MCP clients.
+2. Validates the ID or bearer token through configured issuer, audience, algorithms, and JWKS URL.
 3. Models `Organization`, `User`, and `Membership`; roles map to centralized permission sets.
 4. Auto-provisions an OIDC principal only when enabled and the claimed organization matches the requested organization.
-5. Scopes organization-aware resources and records `created_by`, `requester_id`, and `approver_id` where applicable.
+5. Stores only a random opaque session value in an HttpOnly cookie; its SHA-256 digest and expiry are stored server-side.
+6. Re-resolves membership and role on each request, including WebSocket and MCP authentication.
+7. Lets administrators add, update, and remove organization memberships at `/admin`, while blocking self-removal and self-demotion.
 
-For hosted use, put the API behind HTTPS and an OIDC login/session layer, test every REST/WebSocket/MCP route for cross-organization access, move deployment-wide registries into an organization-aware release model, and use per-organization GitHub App installation credentials.
+For hosted use, keep `WORKBENCH_SESSION_COOKIE_SECURE=true`, configure the callback through the public HTTPS origin, complete a route-inventory authorization review, move deployment-wide registries into an organization-aware release model, and use per-organization GitHub App installation credentials.
 
 ## Separate human roles from agent capabilities
 
@@ -79,8 +81,8 @@ Use scoped, single-use approvals containing the immutable diff or artifact diges
 
 1. **Implemented:** OIDC token validation, local bootstrap identity, organizations, memberships, role permissions, and organization-scoped primary records.
 2. **Implemented:** requester/approver identity on scoped approvals and organization-aware task/evaluation/session operations.
-3. **Next:** complete authorization matrix tests for every REST, WebSocket, MCP, sandbox, evidence, connector, and registry path.
-4. **Next:** add role/membership administration and an explicit browser OIDC login/session lifecycle.
+3. **Implemented:** browser OIDC login, opaque expiring sessions, logout, role/membership administration, and core WebSocket/MCP authorization matrices.
+4. **Next:** generate complete authorization inventory tests for every REST, WebSocket, MCP, sandbox, evidence, connector, and registry path; add session rotation and revocation operations.
 5. **Next:** replace shared registry files and connector credentials with organization-owned, versioned resources and GitHub App installation tokens.
 6. **Next:** add path/task/environment conditions, approval expiry, immutable artifact digests, and enforced separation of duties.
 7. Complete a production threat review before exposing the service to mutually untrusted tenants.

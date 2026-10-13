@@ -16,6 +16,7 @@ from .agent import AgentRuntime
 from .agent_identity import agent_identity_service
 from .config import get_settings
 from .database import engine
+from .execution_queue import enqueue_execution, request_execution_cancellation
 from .events import event_hub
 from .evidence import evidence_provider
 from .models import Approval, Event, Message, Project, Sandbox, Task, TaskArtifact, TaskStatus
@@ -23,9 +24,23 @@ from .model_recovery import ModelRecoveryDecision, model_recovery_broker
 from .observability import mark_error, observe_event, observe_session, tracer
 from .providers import Decision, get_governance_provider, get_sandbox_provider
 from .reliability import reliability
-from .repositories import create_github_pull_request, materialize_repository, publish_repository
+from .repositories import (
+    create_github_pull_request,
+    materialize_repository,
+    parse_github_url,
+    publish_repository,
+    validate_publication,
+)
+from .github_auth import github_credentials
 from .registry import get_definition
+from .runtime_supervision import ExecutionTier
+from .workflow_orchestration import (
+    assert_parallel_stages_are_read_only,
+    stage_artifact_inputs,
+    stage_waves,
+)
 from .workflow_supervisor import workflow_supervisor
+from .workspace_snapshots import workspace_snapshots
 
 
 governance = get_governance_provider()
@@ -125,6 +140,49 @@ async def update_phase(session: Session, task: Task, status: TaskStatus, phase: 
     task.updated_at = datetime.now(UTC)
     session.add(task)
     session.commit()
+    artifact = session.exec(
+        select(TaskArtifact).where(
+            TaskArtifact.task_id == task.id,
+            TaskArtifact.kind == "runtime-supervision",
+        )
+    ).first()
+    content = dict(artifact.content) if artifact else {}
+    history = list(content.get("transitions", []))
+    history.append({
+        "phase_id": transition.phase_id,
+        "status": status.value,
+        "recorded_at": datetime.now(UTC).isoformat(),
+        **transition.supervision["transition"],
+    })
+    content.update({
+        "provider": transition.supervision["provider"],
+        "provider_version": transition.supervision["provider_version"],
+        "capabilities": transition.supervision["capabilities"],
+        "session_id": transition.session_id,
+        "saga_id": transition.saga_id,
+        "tier": transition.supervision["tier"],
+        "trust_score": transition.supervision["trust_score"],
+        "transitions": history,
+    })
+    if transition.supervision["termination"]:
+        content["termination"] = transition.supervision["termination"]
+    _save_artifact(session, task.id, "runtime-supervision", content)
+    await record_event(
+        session,
+        task.id,
+        "runtime_supervision.transition",
+        f"Runtime supervisor entered {transition.label}",
+        transition.phase_id,
+        data={
+            "provider": transition.supervision["provider"],
+            "provider_version": transition.supervision["provider_version"],
+            "tier": transition.supervision["tier"],
+            "phase_id": transition.phase_id,
+            "audit_commitment": (
+                transition.supervision["termination"] or {}
+            ).get("audit_commitment"),
+        },
+    )
     await event_hub.publish({
         "event": "task.updated",
         "task_id": task.id,
@@ -179,6 +237,53 @@ def _save_artifact(session: Session, task_id: str, kind: str, content: dict[str,
     session.add(artifact)
     session.commit()
     evidence_provider.write(task_id, kind, content)
+
+
+async def request_runtime_elevation(
+    session: Session,
+    task: Task,
+    *,
+    target_tier: int,
+    ttl_seconds: int,
+    reason: str,
+    attestation: str | None,
+) -> dict[str, Any]:
+    grant = await workflow_supervisor.elevate(
+        task.id,
+        target_tier=ExecutionTier(target_tier),
+        ttl_seconds=ttl_seconds,
+        reason=reason,
+        attestation=attestation,
+    )
+    evidence = {
+        "provider": grant.provider,
+        "grant_id": grant.grant_id,
+        "original_tier": grant.original_tier.value,
+        "elevated_tier": grant.elevated_tier.value,
+        "expires_at": grant.expires_at.isoformat(),
+        "evidence": grant.evidence,
+    }
+    artifact = session.exec(
+        select(TaskArtifact).where(
+            TaskArtifact.task_id == task.id,
+            TaskArtifact.kind == "runtime-supervision",
+        )
+    ).first()
+    content = dict(artifact.content) if artifact else {}
+    elevations = list(content.get("elevations", []))
+    elevations.append(evidence)
+    content["elevations"] = elevations
+    _save_artifact(session, task.id, "runtime-supervision", content)
+    await record_event(
+        session,
+        task.id,
+        "runtime_supervision.elevated",
+        f"Runtime tier elevated to {grant.elevated_tier.value}",
+        reason,
+        "warning",
+        data=evidence,
+    )
+    return evidence
 
 
 def _git(workspace: Path, arguments: list[str]) -> subprocess.CompletedProcess[str]:
@@ -242,12 +347,197 @@ async def _run_security(workspace: Path) -> dict[str, Any]:
     }
 
 
+async def _run_executable_workflow(
+    *,
+    session: Session,
+    task: Task,
+    workflow: dict[str, Any],
+    workspace: Path,
+    container_id: str,
+    model_name: str,
+    callback: Any,
+    steering: list[str],
+    session_context: list[str],
+    steering_provider: Any,
+    model_recovery: Any,
+) -> str:
+    waves = stage_waves(workflow)
+    agent_definitions = {
+        str(stage["agent"]): get_definition(
+            "agents", str(stage["agent"]).removeprefix("did:local:")
+        )["data"]
+        for wave in waves for stage in wave
+    }
+    assert_parallel_stages_are_read_only(waves, agent_definitions)
+    artifact_values: dict[str, dict[str, Any]] = {}
+    run_state: dict[str, Any] = {
+        "workflow_id": task.workflow_id,
+        "workflow_version": workflow["version"],
+        "status": "running",
+        "stages": {},
+    }
+    persistence_lock = asyncio.Lock()
+    _save_artifact(session, task.id, "workflow-run", run_state)
+
+    async def run_stage(stage: dict[str, Any]) -> tuple[dict[str, Any], str]:
+        stage_id = str(stage["id"])
+        agent_id = str(stage["agent"])
+        definition_id = agent_id.removeprefix("did:local:")
+        verified = agent_identity_service.verify(
+            session,
+            definition_id,
+            task.organization_id,
+            agent_definitions[agent_id],
+        )
+        input_artifacts = stage_artifact_inputs(stage, artifact_values)
+        async with persistence_lock:
+            await record_event(
+                session,
+                task.id,
+                "workflow.stage_started",
+                f"Workflow stage started: {stage_id}",
+                str(stage["responsibility"]),
+                data={
+                    "workflow_id": task.workflow_id,
+                    "stage_id": stage_id,
+                    "agent_id": agent_id,
+                    "agent_did": verified.did,
+                },
+            )
+
+        async def stage_callback(
+            event_type: str,
+            title: str,
+            detail: str,
+            severity: str,
+            data: dict[str, Any] | None,
+        ) -> None:
+            async with persistence_lock:
+                await callback(event_type, title, detail, severity, {
+                    **(data or {}),
+                    "workflow_id": task.workflow_id,
+                    "stage_id": stage_id,
+                    "agent_id": agent_id,
+                })
+
+        environment = agent_definitions[agent_id].get("environment", {})
+        primary_stage = agent_id == task.agent_id
+        stage_container_id = container_id
+        if not primary_stage:
+            created = await sandbox_provider.create({
+                "name": f"agentic-sdlc-{task.id.lower()}-{stage_id}",
+                "workspace": str(workspace),
+                "image": environment.get("image"),
+                "network_mode": environment.get("network_mode", "none"),
+                "workspace_access": environment.get("workspace_access", "read-write"),
+                "pool_profile": environment.get(
+                    "pool_profile", get_settings().azure_session_pool_profile
+                ),
+                "environment": environment.get("variables", {}),
+            })
+            stage_container_id = str(created["container_id"])
+        try:
+            summary = await AgentRuntime().run(
+                task_id=task.id,
+                title=task.title,
+                description=task.description,
+                agent_id=agent_id,
+                model_name=model_name,
+                task_mode=task.mode,
+                verbose_logging=task.verbose_logging,
+                workspace=workspace,
+                container_id=stage_container_id,
+                callback=stage_callback,
+                stage_context={
+                    "workflow_id": task.workflow_id,
+                    "stage_id": stage_id,
+                    "responsibility": stage["responsibility"],
+                    "inputs": list(stage.get("inputs", [])),
+                    "input_artifacts": input_artifacts,
+                    "expected_outputs": list(stage["outputs"]),
+                    "handoff": stage.get("handoff", {}),
+                },
+                steering=steering,
+                session_context=session_context,
+                steering_provider=steering_provider,
+                model_recovery=model_recovery,
+            )
+        except Exception as exc:
+            run_state["stages"][stage_id] = {
+                "status": "failed",
+                "agent_id": agent_id,
+                "error": str(exc),
+            }
+            raise
+        finally:
+            if not primary_stage:
+                await sandbox_provider.kill(stage_container_id)
+        async with persistence_lock:
+            await record_event(
+                session,
+                task.id,
+                "workflow.stage_completed",
+                f"Workflow stage completed: {stage_id}",
+                summary,
+                data={
+                    "workflow_id": task.workflow_id,
+                    "stage_id": stage_id,
+                    "agent_id": agent_id,
+                    "outputs": list(stage["outputs"]),
+                },
+            )
+        return stage, summary
+
+    final_message = ""
+    try:
+        for wave_index, wave in enumerate(waves):
+            results = await asyncio.gather(*(run_stage(stage) for stage in wave))
+            for stage, summary in results:
+                stage_id = str(stage["id"])
+                outputs = list(stage["outputs"])
+                for output_id in outputs:
+                    value = {
+                        "workflow_id": task.workflow_id,
+                        "stage_id": stage_id,
+                        "agent_id": stage["agent"],
+                        "summary": summary,
+                    }
+                    artifact_values[output_id] = value
+                    _save_artifact(session, task.id, output_id, value)
+                run_state["stages"][stage_id] = {
+                    "status": "completed",
+                    "wave": wave_index,
+                    "agent_id": stage["agent"],
+                    "inputs": list(stage.get("inputs", [])),
+                    "outputs": outputs,
+                    "handoff": {
+                        "include": stage.get("handoff", {}).get(
+                            "include", ["summary", "artifacts"]
+                        ),
+                        "summary": summary,
+                        "artifacts": outputs,
+                    },
+                }
+                final_message = summary
+            _save_artifact(session, task.id, "workflow-run", run_state)
+    except Exception as exc:
+        run_state["status"] = "failed"
+        run_state["error"] = str(exc)
+        _save_artifact(session, task.id, "workflow-run", run_state)
+        raise
+    run_state["status"] = "completed"
+    _save_artifact(session, task.id, "workflow-run", run_state)
+    return final_message
+
+
 async def run_task(task_id: str) -> None:
     with Session(engine) as session:
         task = session.get(Task, task_id)
         project = session.get(Project, task.project_id) if task else None
         if not task or not project:
             return
+        workspace: Path | None = None
+        workspace_revision_id: str | None = None
         session_started = time.monotonic()
         files_changed = 0
         session_span = tracer().start_span(
@@ -261,6 +551,19 @@ async def run_task(task_id: str) -> None:
         )
         context_token = context.attach(trace.set_span_in_context(session_span))
         try:
+            workflow_snapshot = session.exec(
+                select(TaskArtifact).where(
+                    TaskArtifact.task_id == task.id,
+                    TaskArtifact.kind == "workflow-definition",
+                )
+            ).first()
+            workflow_definition = (
+                dict(workflow_snapshot.content["definition"])
+                if workflow_snapshot and isinstance(
+                    workflow_snapshot.content.get("definition"), dict
+                )
+                else get_definition("workflows", task.workflow_id)["data"]
+            )
             definition_id = task.agent_id.removeprefix("did:local:")
             identity_definition = get_definition(
                 "agents", definition_id)["data"]
@@ -277,6 +580,24 @@ async def run_task(task_id: str) -> None:
             )
             await update_phase(session, task, TaskStatus.INTAKE, "Repository", 5)
             await record_event(session, task_id, "repository.materializing", "Preparing repository", project.repository_url or project.repository_path)
+            workspace_target = Path(
+                get_settings().workspace_dir).resolve() / task_id / "repo"
+            if workspace_target.exists():
+                existing_revision = workspace_snapshots.latest(task_id)
+            else:
+                existing_revision = await workspace_snapshots.restore_latest(
+                    task_id, workspace_target
+                )
+            if existing_revision:
+                workspace_revision_id = existing_revision.id
+                await record_event(
+                    session,
+                    task_id,
+                    "workspace.restored",
+                    "Workspace revision restored",
+                    existing_revision.id,
+                    data={"revision_id": existing_revision.id},
+                )
             workspace = await materialize_repository(project, task_id)
             task.branch = f"workbench/{task_id.lower()}"
             session.add(task)
@@ -309,6 +630,7 @@ async def run_task(task_id: str) -> None:
             sandbox.network_policy = created["network_policy"]
             sandbox.container_id = created["container_id"]
             sandbox.host_workspace = str(workspace)
+            sandbox.workspace_revision_id = workspace_revision_id
             session.add(sandbox)
             session.commit()
             await record_event(
@@ -416,23 +738,48 @@ async def run_task(task_id: str) -> None:
                 )
                 return decision
 
-            initial_steering = await steering()
+            session_messages = session.exec(
+                select(Message).where(Message.task_id ==
+                                      task_id).order_by(Message.created_at)
+            ).all()
+            initial_steering = [
+                item.content for item in session_messages if item.role == "user"
+            ]
+            session_context = [
+                f"{item.role.title()}: {item.content}" for item in session_messages[-20:]
+            ]
             await update_phase(session, task, TaskStatus.IMPLEMENTATION, "Implementation", 35)
-            final_message = await AgentRuntime().run(
-                task_id=task_id,
-                title=task.title,
-                description=task.description,
-                agent_id=task.agent_id,
-                model_name=model_name,
-                task_mode=task.mode,
-                verbose_logging=task.verbose_logging,
-                workspace=workspace,
-                container_id=sandbox.container_id,
-                callback=callback,
-                steering=initial_steering,
-                steering_provider=steering,
-                model_recovery=recover_model,
-            )
+            if workflow_definition.get("stages"):
+                final_message = await _run_executable_workflow(
+                    session=session,
+                    task=task,
+                    workflow=workflow_definition,
+                    workspace=workspace,
+                    container_id=sandbox.container_id,
+                    model_name=model_name,
+                    callback=callback,
+                    steering=initial_steering,
+                    session_context=session_context,
+                    steering_provider=steering,
+                    model_recovery=recover_model,
+                )
+            else:
+                final_message = await AgentRuntime().run(
+                    task_id=task_id,
+                    title=task.title,
+                    description=task.description,
+                    agent_id=task.agent_id,
+                    model_name=model_name,
+                    task_mode=task.mode,
+                    verbose_logging=task.verbose_logging,
+                    workspace=workspace,
+                    container_id=sandbox.container_id,
+                    callback=callback,
+                    steering=initial_steering,
+                    session_context=session_context,
+                    steering_provider=steering,
+                    model_recovery=recover_model,
+                )
             await record_event(session, task_id, "agent.completed", "Agent implementation completed", final_message)
 
             changes = await asyncio.to_thread(_collect_changes, workspace)
@@ -570,6 +917,45 @@ async def run_task(task_id: str) -> None:
             await update_phase(session, task, TaskStatus.FAILED, "Failed", task.progress)
             await record_event(session, task_id, "task.failed", "Task failed", str(exc), "error")
         finally:
+            if workspace and workspace.exists():
+                try:
+                    revision = await workspace_snapshots.checkpoint(
+                        task_id,
+                        task.organization_id,
+                        workspace,
+                        workspace_revision_id,
+                    )
+                    sandbox = session.exec(select(Sandbox).where(
+                        Sandbox.task_id == task_id
+                    )).first()
+                    if sandbox:
+                        sandbox.workspace_revision_id = revision.id
+                        session.add(sandbox)
+                        session.commit()
+                    await record_event(
+                        session,
+                        task_id,
+                        "workspace.checkpointed",
+                        "Workspace revision checkpointed",
+                        revision.id,
+                        data={"revision_id": revision.id,
+                              "digest": revision.digest},
+                    )
+                except Exception as exc:
+                    await record_event(
+                        session,
+                        task_id,
+                        "workspace.checkpoint_failed",
+                        "Workspace checkpoint failed",
+                        str(exc),
+                        "error",
+                    )
+                    if get_settings().workspace_snapshot_required:
+                        task.status = TaskStatus.FAILED
+                        task.phase = "Failed"
+                        task.updated_at = datetime.now(UTC)
+                        session.add(task)
+                        session.commit()
             session.expire(task)
             status = str(task.status)
             if status in {"DONE", "FAILED", "CANCELLED"}:
@@ -586,7 +972,9 @@ async def run_task(task_id: str) -> None:
             running_tasks.pop(task_id, None)
 
 
-def start_task(task_id: str) -> asyncio.Task[None]:
+def start_task(task_id: str) -> asyncio.Task[None] | Any:
+    if get_settings().execution_dispatch == "durable":
+        return enqueue_execution(task_id)
     active = running_tasks.get(task_id)
     if active and not active.done():
         return active
@@ -608,11 +996,75 @@ async def shutdown_running_tasks() -> None:
 
 async def terminate_task(task_id: str) -> None:
     model_recovery_broker.cancel(task_id)
+    request_execution_cancellation(task_id)
     active = running_tasks.get(task_id)
     if active and not active.done():
         active.cancel()
     with Session(engine) as session:
         await cleanup_sandbox(session, task_id, "operator cancellation")
+
+
+def _pull_request_body(
+    task: Task,
+    artifacts: dict[str, dict[str, Any]],
+    approved_by: str | None,
+) -> str:
+    changes = artifacts.get("changes", {})
+    tests = artifacts.get("tests", {})
+    security = artifacts.get("security", {})
+    files = list(changes.get("files") or [])
+    file_lines = []
+    for item in files[:50]:
+        path = str(item.get("path") or "unknown").replace("`", "\\`")
+        status = str(item.get("status") or "modified")
+        additions = int(item.get("additions") or 0)
+        deletions = int(item.get("deletions") or 0)
+        file_lines.append(
+            f"- `{path}` — {status} (+{additions}/-{deletions})"
+        )
+    if len(files) > 50:
+        file_lines.append(f"- …and {len(files) - 50} more files")
+    if not file_lines:
+        file_lines.append("- No changed-file artifact was recorded.")
+
+    test_summary = (
+        f"{int(tests.get('passed') or 0)} passed, "
+        f"{int(tests.get('failed') or 0)} failed, "
+        f"{int(tests.get('skipped') or 0)} skipped"
+    )
+    scanners = security.get("scanners") or {}
+    scanner_summary = ", ".join(
+        f"{name}: {status}" for name, status in scanners.items()
+    ) or "No scanner evidence recorded"
+    description = (task.description or "No task description provided.").strip()[:2000]
+    return "\n".join([
+        "## Summary",
+        "",
+        description,
+        "",
+        "## Changed files",
+        "",
+        *file_lines,
+        "",
+        "## Validation",
+        "",
+        f"- Governed tests: {test_summary}",
+        (
+            "- Security findings: "
+            f"{int(security.get('high') or 0)} high, "
+            f"{int(security.get('medium') or 0)} medium, "
+            f"{int(security.get('low') or 0)} low"
+        ),
+        f"- Security scanners: {scanner_summary}",
+        "",
+        "## Governance",
+        "",
+        f"- AutoDev task: `{task.id}`",
+        f"- Workflow: `{task.workflow_id}`",
+        f"- Agent: `{task.agent_id}`",
+        f"- Requested by: `{task.created_by or 'unknown'}`",
+        f"- Approved by: `{approved_by or 'unknown'}`",
+    ])
 
 
 async def complete_approval(task_id: str) -> None:
@@ -624,9 +1076,33 @@ async def complete_approval(task_id: str) -> None:
             raise RuntimeError("Task worktree is unavailable")
         workspace = Path(sandbox.host_workspace)
         await asyncio.to_thread(_git, workspace, ["add", "-A"])
+        author_name = "Agentic SDLC Workbench"
+        author_email = "workbench@local"
+        if (
+            (project := session.get(Project, task.project_id))
+            and project.source_type == "github"
+            and project.repository_url
+        ):
+            owner, _ = parse_github_url(project.repository_url)
+            identity = github_credentials.commit_identity(
+                project.organization_id,
+                project.created_by,
+                owner,
+                project.connector_id,
+            )
+            if identity:
+                author_name, author_email = identity
+        commit_message = f"agent: {task.title}\n\nAutoDev-Task: {task.id}"
+        if task.created_by:
+            commit_message += f"\nAutoDev-Requester: {task.created_by}"
         commit = await asyncio.to_thread(
-            _git, workspace, ["-c", "user.name=Agentic SDLC Workbench", "-c",
-                              "user.email=workbench@local", "commit", "-m", f"agent: {task.title}"]
+            _git,
+            workspace,
+            [
+                "-c", f"user.name={author_name}",
+                "-c", f"user.email={author_email}",
+                "commit", "-m", commit_message,
+            ],
         )
         if commit.returncode:
             raise RuntimeError(commit.stderr.strip() or "Commit failed")
@@ -641,7 +1117,10 @@ async def complete_approval(task_id: str) -> None:
 
 
 async def complete_publication(
-    task_id: str, branch: str, create_pull_request: bool
+    task_id: str,
+    branch: str,
+    create_pull_request: bool,
+    approved_by: str | None = None,
 ) -> dict[str, Any]:
     with Session(engine) as session:
         task = session.get(Task, task_id)
@@ -652,18 +1131,36 @@ async def complete_publication(
             Sandbox.task_id == task_id)).first()
         if not project or not sandbox or not sandbox.host_workspace:
             raise RuntimeError("Task worktree is unavailable")
+        validate_publication(project, create_pull_request)
         published = await publish_repository(project, Path(sandbox.host_workspace), branch)
         result: dict[str, Any] = {**published, "pull_request": None}
         await record_event(
             session, task_id, "git.push", "Branch published", branch,
-            data={"branch": branch, "commit": published["commit"]},
+            data={
+                "branch": branch,
+                "commit": published["commit"],
+                "github_actor": published.get("github_actor"),
+                "github_auth_method": published.get("github_auth_method"),
+                "github_installation_id": published.get("github_installation_id"),
+                "requested_by": task.created_by,
+                "approved_by": approved_by,
+            },
         )
         if create_pull_request:
+            task_artifacts = {
+                item.kind: item.content
+                for item in session.exec(
+                    select(TaskArtifact).where(TaskArtifact.task_id == task_id).order_by(
+                        TaskArtifact.id
+                    )
+                ).all()
+            }
+            body = _pull_request_body(task, task_artifacts, approved_by)
             result["pull_request"] = await create_github_pull_request(
                 project,
                 branch,
                 task.title,
-                f"Automated governed change for {task.id}.",
+                body,
             )
             await record_event(
                 session,
@@ -671,7 +1168,18 @@ async def complete_publication(
                 "pull_request.created",
                 "Pull request created",
                 str(result["pull_request"].get("url") or ""),
-                data={"branch": branch},
+                data={
+                    "branch": branch,
+                    "github_actor": result["pull_request"].get("github_actor"),
+                    "github_auth_method": result["pull_request"].get(
+                        "github_auth_method"
+                    ),
+                    "github_installation_id": result["pull_request"].get(
+                        "github_installation_id"
+                    ),
+                    "requested_by": task.created_by,
+                    "approved_by": approved_by,
+                },
             )
         _save_artifact(session, task_id, "publication", result)
         return result

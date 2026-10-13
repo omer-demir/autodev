@@ -1,0 +1,35 @@
+name: Design
+version: 1.0.0
+description: Produces UX and technical design guidance from shared grounded context.
+status: active
+default_mode: change
+phases:
+  - { id: planning, status: PLANNING, label: Research, progress: 15 }
+  - { id: implementation, status: IMPLEMENTATION, label: Design, progress: 35 }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: dag, max_parallel: 1 }
+stages:
+  - id: context
+    agent: did:local:researcher
+    responsibility: Establish product, user, repository, and constraint context for both design disciplines.
+    inputs: [request, messages, workspace]
+    outputs: [design-context]
+  - id: ux-design
+    agent: did:local:ux-designer
+    responsibility: Produce flows, states, accessibility requirements, and implementation-ready UX guidance.
+    depends_on: [context]
+    inputs: [request, design-context, workspace]
+    outputs: [ux-design]
+  - id: technical-design
+    agent: did:local:architect
+    responsibility: Produce boundaries, interfaces, data flows, tradeoffs, and technical risks; in change mode, write the technical design using repository conventions.
+    depends_on: [context]
+    inputs: [request, design-context, workspace]
+    outputs: [technical-design]
+  - id: design-synthesis
+    agent: did:local:architect
+    responsibility: Reconcile UX and technical guidance into one coherent design handoff and, in change mode, finalize its repository documents.
+    depends_on: [ux-design, technical-design]
+    inputs: [request, ux-design, technical-design]
+    outputs: [design-guidance]
+    handoff: { include: [summary, artifacts, workspace] }

@@ -2,11 +2,14 @@
   "name": "agentic-sdlc-workbench",
   "version": "0.1.0",
   "private": true,
-  "workspaces": ["apps/web"],
+  "workspaces": [
+    "apps/web"
+  ],
   "scripts": {
-    "dev": "concurrently -n api,web -c cyan,magenta \"npm run dev:api\" \"npm run dev:web\"",
-    "dev:web": "npm --workspace apps/web run dev",
-    "dev:api": ".venv/bin/uvicorn app.main:app --app-dir apps/api --reload --reload-dir apps/api --port 8000",
+    "dev": "concurrently --kill-others-on-fail -n api,web,worker -c cyan,magenta,yellow \"npm run dev:api\" \"npm run dev:web\" \"npm run dev:worker\"",
+    "dev:web": "node scripts/wait-for-api.mjs && npm --workspace apps/web run dev",
+    "dev:api": "WORKBENCH_OTEL_SERVICE_NAME=autodev-api WATCHFILES_FORCE_POLLING=true .venv/bin/uvicorn app.main:app --app-dir apps/api --reload --reload-dir apps/api/app --reload-delay 1 --port 8000",
+    "dev:worker": "WORKBENCH_OTEL_SERVICE_NAME=autodev-worker PYTHONPATH=apps/api .venv/bin/python -m app.worker",
     "build": "npm --workspace apps/web run build",
     "lint": "npm --workspace apps/web run lint",
     "test": ".venv/bin/pytest apps/api/tests"
@@ -15,5 +18,7 @@
     "concurrently": "^9.2.1",
     "next": "16.3.8"
   },
-  "overrides": {"monaco-editor": "0.53.0"}
+  "overrides": {
+    "monaco-editor": "0.53.0"
+  }
 }

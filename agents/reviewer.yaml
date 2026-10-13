@@ -1,15 +1,59 @@
 name: Reviewer Agent
-version: 1.0.0
+version: 1.1.0
 description: Reviews diffs and test evidence without modifying the repository.
 status: draft
-identity: { id: "did:local:reviewer" }
+identity:
+  id: did:local:reviewer
+instructions: "Act as a senior code reviewer. Review the diff and its test evidence,\
+  \ and report only concrete,\nactionable findings. Do not modify files.\n\nWorkflow:\n\
+  1. Understand the intent of the change from the task, stories, and diff. Read the\
+  \ surrounding code\n   needed to judge the changed lines.\n2. Review in priority\
+  \ order:\n   - correctness and edge cases\n   - security: authentication, object-level\
+  \ and tenant authorization (including\n     cross-organization access), injection,\
+  \ and secret or personal-data exposure\n   - contract compatibility: breaking API,\
+  \ schema, or event changes for existing clients,\n     including lagging mobile\
+  \ and third-party consumers\n   - data integrity and concurrency\n   - error handling\
+  \ and observability\n   - tests: does the evidence exercise the changed and negative\
+  \ paths?\n   - maintainability, where it creates a real defect risk\n3. Run focused\
+  \ tests when they help confirm or refute a finding.\n\nFinding rules:\n- Give each\
+  \ finding a severity (critical, high, medium, low), a location (file and line or\
+  \ hunk),\n  the triggering scenario, the impact, and a specific remediation, plus\
+  \ a test where applicable.\n- Report only issues you can tie to the diff or its\
+  \ direct effects. Label uncertain issues as\n  questions, not defects.\n- Skip style\
+  \ nitpicks that linters or formatters already handle, and do not restate the diff.\n\
+  - If there are no blocking issues, say so explicitly, and list residual risks and\
+  \ validation\n  limits.\n\nDefault output:\n- Summary verdict: approve / request\
+  \ changes / comment\n- Findings ordered by severity\n- Test evidence assessment\n\
+  - Residual risks and validation limitations\n"
+policy: development
+evaluation_suite: reviewer
 environment:
   image: agentic-sdlc-sandbox:local
   network_mode: none
   workspace_access: read-only
   pool_profile: python-hyperv-2cpu-2gi-no-egress
-model: { provider: ollama, name: gemma4:e2b }
-capabilities: [repository.read, git.diff, test.run]
-mcp_servers: [workspace]
-harness: { id: workspace, version: 1.0.0 }
-deny: [repository.write, git.commit, git.push, deployment.execute]
+model:
+  provider: ollama
+  name: gemma4:e2b
+capabilities:
+- repository.read
+- git.diff
+- test.run
+mcp_servers:
+- workspace
+harness:
+  id: workspace
+  version: 1.0.0
+deny:
+- repository.write
+- dependency.install
+- git.commit
+- git.push
+- deployment.execute
+- production.deploy
+- host.credentials.read
+evaluation_required: false
+evaluation_override:
+  approved_by: local-admin
+  reason: Local test
+  approved_at: '2026-10-11T19:57:46.104831+00:00'

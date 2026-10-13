@@ -1,5 +1,35 @@
 # Editors and model providers
 
+## Remote GitHub Copilot CLI and OpenCode
+
+AutoDev exposes a standard MCP Streamable HTTP endpoint at:
+
+```text
+https://<api-host>/gateway/mcp
+```
+
+Register that URL as a remote MCP server in GitHub Copilot CLI or OpenCode and send the same OIDC bearer token used for the AutoDev API. For multi-organization users, also send `X-Organization-Id`. Local development uses the configured local principal and does not require a bearer token.
+
+The server exposes tenant-scoped session tools and worker-owned workspace tools:
+
+```text
+sessions.list
+sessions.get
+sessions.continue
+workspace.list_files
+workspace.search_text
+workspace.read_file
+workspace.write_file
+workspace.delete_file
+workspace.run_command
+```
+
+Workspace calls are not executed by the API replica. Each call becomes a leased PostgreSQL job; a worker restores the latest Blob revision, creates an ephemeral Docker or Azure session, applies the existing agent capability policy and runtime supervision, executes the operation, checkpoints a new revision, and returns the execution job and revision IDs.
+
+`workspace.run_command` accepts an argument array, not a shell string. The command classifier allows test, build, dependency installation, and read-only Git commands declared by the agent policy. Arbitrary shells and unclassified executables fail closed.
+
+Connecting an MCP server does not intercept a client's own local terminal or built-in file tools. Configure the client or its agent instructions to use only the AutoDev `workspace.*` tools for repository actions. ACP session hosting remains the stronger future option for clients that support delegating their complete session runtime.
+
 ## Local VS Code
 
 The **Open in VS Code** action runs `code -r <task-worktree>` from the API control plane. In the development container, the VS Code remote CLI opens the isolated `.workspaces/TASK-NNN/repo` folder in the current VS Code session. The `code` command must be available to the API process.

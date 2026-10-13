@@ -63,9 +63,9 @@ The model requests. The control plane decides. The evidence records.
 ```text
 Connect repository
       ↓
-Select promoted agent + model
+Select workflow + promoted specialist roles
       ↓
-Research → Plan → Implement → Review
+Ideate → Design → Plan → Implement → Test → Review
       ↓
 Inspect diff + tests + security + policy
       ↓
@@ -92,11 +92,12 @@ Remote declarations never grant local authority.
 
 # Evidence-backed RPI
 
-Each task follows Research, Plan, Implement, Review.
+Each task follows an executable, versioned workflow.
 
 Autodev records:
 
 - Retrieval and tool events
+- Stage ownership and named handoffs
 - Requirements and acceptance checks
 - Real changed files and Git diff
 - Test commands and output
@@ -114,10 +115,11 @@ Agent changes move through:
 
 ```text
 Draft → Static lint → Human-reviewed dataset → Frozen hash
-      → Native + Vally + Waza → Regression comparison → Promotion
+      → Isolated evaluator execution → Native + Vally + Waza evidence
+      → Dataset/hash verification → Regression comparison → Promotion
 ```
 
-The evaluated agent version and dataset must match exactly.
+The evaluated agent version, suite, dataset ID, and frozen hash must match exactly. Evaluation executions do not create product tasks or sessions; the evaluator defaults independently to Ollama `gemma4:e2b`.
 
 ---
 

@@ -1,0 +1,2 @@
+class SupervisionElevationError(RuntimeError):
+    pass

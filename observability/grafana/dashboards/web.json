@@ -1,0 +1,84 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat", "title": "Web scrape up", "id": 1,
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(up{job=\"web\"})", "legendFormat": "web"}]
+    },
+    {
+      "type": "stat", "title": "Server span rate", "id": 2,
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(traces_spanmetrics_calls_total{service=\"autodev-web\"}[5m]))", "legendFormat": "spans/s"}]
+    },
+    {
+      "type": "stat", "title": "Browser span rate", "id": 3,
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(traces_spanmetrics_calls_total{service=\"autodev-web-browser\"}[5m]))", "legendFormat": "spans/s"}]
+    },
+    {
+      "type": "stat", "title": "Client errors", "id": 4,
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(autodev_web_client_events_total{name=~\"client_error|unhandled_rejection\"}) or vector(0)", "legendFormat": "errors"}]
+    },
+    {
+      "type": "timeseries", "title": "Web server and browser span rate", "id": 5,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (service, span_kind) (rate(traces_spanmetrics_calls_total{service=~\"autodev-web.*\"}[5m]))", "legendFormat": "{{service}} {{span_kind}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Web span latency p95", "id": 6,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket{service=~\"autodev-web.*\"}[5m])))", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Web Vitals p75", "id": 7,
+      "description": "Values use the native Web Vital unit: milliseconds except CLS, which is unitless.",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "histogram_quantile(0.75, sum by (le, name) (rate(autodev_web_vital_value_bucket[15m])))", "legendFormat": "{{name}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Node.js heap", "id": 8,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "autodev_web_nodejs_heap_size_used_bytes", "legendFormat": "used"},
+        {"expr": "autodev_web_nodejs_heap_size_total_bytes", "legendFormat": "allocated"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Web process CPU", "id": 9,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "rate(autodev_web_process_cpu_user_seconds_total[5m])", "legendFormat": "user"},
+        {"expr": "rate(autodev_web_process_cpu_system_seconds_total[5m])", "legendFormat": "system"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "cores"}, "overrides": []}
+    },
+    {
+      "type": "logs", "title": "Web logs", "id": 10,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{service_name=\"web\"}", "refId": "A"}],
+      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true, "sortOrder": "Descending"}
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": ["autodev", "web", "browser"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "AutoDev Web",
+  "uid": "autodev-web",
+  "version": 1
+}

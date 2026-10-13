@@ -20,6 +20,10 @@ if [[ -f pyproject.toml ]]; then
   uv sync --all-extras --dev
 fi
 
+if [[ -f scripts/install-waza.sh ]]; then
+  bash scripts/install-waza.sh
+fi
+
 printf '\nAgentic SDLC Workbench development environment\n'
 printf '  Python: %s\n' "$(python --version 2>&1)"
 printf '  Node:   %s\n' "$(node --version)"

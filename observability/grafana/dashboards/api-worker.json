@@ -1,0 +1,80 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat", "title": "API requests / second", "id": 1,
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(autodev_http_server_requests_total{service_name=\"autodev-api\"}[5m]))", "legendFormat": "requests/s"}]
+    },
+    {
+      "type": "stat", "title": "Worker jobs", "id": 2,
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(autodev_worker_jobs_total{service_name=\"autodev-worker\"}) or vector(0)", "legendFormat": "jobs"}]
+    },
+    {
+      "type": "stat", "title": "Agent sessions", "id": 3,
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(autodev_agent_sessions_total) or vector(0)", "legendFormat": "sessions"}]
+    },
+    {
+      "type": "stat", "title": "Guardrail hits", "id": 4,
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(autodev_governance_guardrail_hits_total) or vector(0)", "legendFormat": "hits"}]
+    },
+    {
+      "type": "timeseries", "title": "API request rate by route", "id": 5,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (http_route, http_request_method) (rate(autodev_http_server_requests_total{service_name=\"autodev-api\"}[5m]))", "legendFormat": "{{http_request_method}} {{http_route}}"}]
+    },
+    {
+      "type": "timeseries", "title": "API latency p95 by route", "id": 6,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, http_route) (rate(http_server_request_duration_seconds_bucket{service_name=\"autodev-api\"}[5m])))", "legendFormat": "{{http_route}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Worker jobs by operation and status", "id": 7,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (autodev_operation, autodev_status) (rate(autodev_worker_jobs_total{service_name=\"autodev-worker\"}[5m]))", "legendFormat": "{{autodev_operation}} {{autodev_status}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Worker job latency p95", "id": 8,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, autodev_operation) (rate(autodev_worker_job_duration_milliseconds_bucket{service_name=\"autodev-worker\"}[5m])))", "legendFormat": "{{autodev_operation}}"}],
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Model and tool latency p95", "id": 9,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(autodev_model_duration_milliseconds_bucket[5m])))", "legendFormat": "model"},
+        {"expr": "histogram_quantile(0.95, sum by (le) (rate(autodev_tool_duration_milliseconds_bucket[5m])))", "legendFormat": "tool"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "ms"}, "overrides": []}
+    },
+    {
+      "type": "logs", "title": "API and worker logs", "id": 10,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{service_name=~\"api|worker\"}", "refId": "A"}],
+      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true, "sortOrder": "Descending"}
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": ["autodev", "api", "worker"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "AutoDev API and Worker",
+  "uid": "autodev-api-worker",
+  "version": 1
+}

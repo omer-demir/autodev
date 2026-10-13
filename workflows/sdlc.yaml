@@ -2,6 +2,8 @@ name: Governed SDLC
 version: 2.0.0
 description: Hypervisor-supervised task lifecycle executed by the workflow controller.
 status: active
+default_mode: change
+default_agent: did:local:developer
 phases:
   - id: intake
     status: INTAKE

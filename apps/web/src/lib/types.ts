@@ -3,12 +3,32 @@ export type TaskStatus =
   | "SECURITY" | "REVIEW" | "AWAITING_MODEL" | "AWAITING_APPROVAL" | "DONE" | "FAILED" | "CANCELLED";
 
 export interface Project {
-  id: number; name: string; repository_path: string; source_type: "local" | "github";
+  id: number; name: string; repository_path: string; source_type: "local" | "github" | "empty";
   repository_url: string | null; default_branch: string | null;
+  connector_id: string | null; transport: "ssh" | "https";
+}
+export interface Connector {
+  id: string; provider: "github" | "gitlab" | "azure_devops"; name: string;
+  auth_method: string; status: "REGISTERING" | "PENDING_INSTALLATION" | "ACTIVE" | "FAILED";
+  account_login: string | null; metadata: Record<string, string | number | boolean | null>;
+  created_by: string | null; created_at: string; updated_at: string;
+}
+export interface ConnectorAccount {
+  login: string; type: string; installation_id: number; repository_selection: string;
 }
 export interface Task {
   id: string; project_id: number; title: string; description: string; status: TaskStatus;
-  phase: string; progress: number; agent_id: string; branch: string; mode: "change" | "assessment"; verbose_logging: boolean; created_at: string; updated_at: string;
+  phase: string; progress: number; workflow_id: string; agent_id: string; branch: string; mode: "change" | "assessment"; verbose_logging: boolean; created_at: string; updated_at: string;
+}
+export interface TaskPage {
+  items: Task[]; total: number; page: number; page_size: number;
+  counts: { active: number; awaiting_approval: number; done: number; failed: number };
+}
+export interface AuthUser {
+  user_id: string; organization_id: string; role: string; email: string | null; auth_mode: "local" | "oidc";
+}
+export interface OrganizationMember {
+  user_id: string; email: string | null; display_name: string | null; role: string; created_at: string;
 }
 export interface TimelineEvent {
   id: number; task_id: string; type: string; title: string; detail: string;
@@ -54,7 +74,8 @@ export interface ModelRecoveryRequest {
 }
 export interface GitHubRepository {
   name: string; full_name: string; private: boolean; clone_url: string;
-  default_branch: string; updated_at: string;
+  ssh_url: string | null; html_url: string | null; owner: string | null;
+  default_branch: string | null; updated_at: string;
 }
 export interface RuntimeStatus {
   mode: string; model_provider: string; active_model_provider: string; model_fallback_active: boolean;
@@ -67,7 +88,10 @@ export interface RuntimeStatus {
   sandbox: { ready: boolean; provider?: string; endpoint?: string; error?: string };
   docker_available: boolean; docker: { cli: boolean; daemon: boolean; ready: boolean; error?: string } | null;
   github_authenticated: boolean;
-  github_login: string | null; github_auth_method: "oauth" | "environment" | null;
+  github_login: string | null; github_auth_method: "github_app" | "oauth" | "environment" | null;
+  github_app_slug: string | null;
+  github_installations: { id: number; account: string; repository_selection: string }[];
+  github_app_configured: boolean;
   github_oauth_configured: boolean;
 }
 export interface DashboardData {
@@ -77,6 +101,9 @@ export interface DashboardData {
 export interface RegistryDefinition {
   kind: "agents" | "skills" | "mcp" | "workflows" | "policies" | "evaluation-suites" | "harnesses" | "capability-catalogs";
   id: string; raw: string; data: Record<string, unknown>;
+}
+export interface RuntimeCapabilities {
+  capabilities: string[]; resolvers: string[];
 }
 export interface SessionSummary {
   id: string; task_id: string; title: string; status: TaskStatus; agent_id: string;
@@ -99,17 +126,42 @@ export interface EvaluationRun {
   comparison?: Record<string, unknown>; provenance: Record<string, unknown>;
   created_at: string;
 }
+export interface EvaluationEvent {
+  id: number; run_id: string; organization_id: string;
+  adapter: string | null; scenario_id: string | null;
+  type: string; title: string; detail: string; severity: string;
+  data: Record<string, unknown>; created_at: string;
+}
+export interface EvaluationArtifact {
+  path: string; size_bytes: number; preview: string | null;
+}
+export interface EvaluationArtifacts {
+  run_id: string; files: EvaluationArtifact[];
+}
 export interface EvaluationDataset {
-  id: string; agent_id: string; agent_version: string; suite_id: string; suite_version: string;
+  id: string; dataset_name: string; version: number;
+  agent_id: string; agent_version: string; suite_id: string; suite_version: string;
   status: "DRAFT" | "REVIEWED" | "FROZEN"; scenarios: Record<string, unknown>[];
+  adapter_specs: Record<string, unknown>;
   content_hash: string | null; generated_by: string; reviewed_by: string | null;
   frozen_at: string | null; created_at: string; updated_at: string;
+}
+export interface EvaluationDatasetPage {
+  items: EvaluationDataset[]; total: number; page: number; page_size: number;
 }
 export interface BehavioralEvaluationReadiness {
   ready: boolean;
   adapters: Record<"native" | "vally" | "waza", {
     ready: boolean; detail: string; executable?: string | null;
   }>;
+}
+export interface EvaluationModelCatalog {
+  provider: "copilot" | "ollama";
+  default_model: string | null;
+  models: {
+    name: string; id?: string; provider: string; size?: number | null;
+    automatic?: boolean;
+  }[];
 }
 
 export interface AgentTelemetryModelCall {

@@ -1,0 +1,27 @@
+{
+  "files.watcherExclude": {
+    "**/.git/objects/**": true,
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/.workspaces/**": true,
+    "**/.snapshots/**": true,
+    "**/.evidence/**": true
+  },
+  "search.exclude": {
+    "**/.venv/**": true,
+    "**/node_modules/**": true,
+    "**/.next/**": true,
+    "**/.workspaces/**": true,
+    "**/.snapshots/**": true,
+    "**/.evidence/**": true
+  },
+  "python.analysis.exclude": [
+    "**/.venv/**",
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/.workspaces/**",
+    "**/.snapshots/**",
+    "**/.evidence/**"
+  ]
+}

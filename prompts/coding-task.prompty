@@ -5,11 +5,19 @@ inputs:
   task_id: {type: string}
   title: {type: string}
   description: {type: string}
+  stage_context_block: {type: string, default: ""}
+  session_context_block: {type: string, default: ""}
   steering_block: {type: string, default: ""}
 ---
 Task {{ task_id }}: {{ title }}
 
-{{ description }}{% if steering_block %}
+{{ description }}{% if stage_context_block %}
+
+Workflow stage contract:
+{{ stage_context_block }}{% endif %}{% if steering_block %}
 
 Developer steering received during this session:
-{{ steering_block }}{% endif %}
+{{ steering_block }}{% endif %}{% if session_context_block %}
+
+Context from prior runs in this durable session:
+{{ session_context_block }}{% endif %}

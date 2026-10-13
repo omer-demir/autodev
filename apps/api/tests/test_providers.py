@@ -1,3 +1,4 @@
+import asyncio
 import io
 import tarfile
 from pathlib import Path
@@ -14,7 +15,7 @@ from app.providers import AzureContainerAppsSessionProvider, DockerSandboxProvid
 def test_sandbox_reports_actionable_missing_docker_error():
     provider = DockerSandboxProvider()
 
-    with patch("app.providers.shutil.which", return_value=None), pytest.raises(
+    with patch("app.providers.sandbox.docker.shutil.which", return_value=None), pytest.raises(
         RuntimeError, match="recreate the API container"
     ):
         provider.executable()
@@ -49,7 +50,7 @@ async def test_sandbox_execute_args_uses_configured_command_timeout():
     provider = DockerSandboxProvider()
     completed = __import__("subprocess").CompletedProcess([], 0, "ok", "")
 
-    with patch("app.providers.get_settings", return_value=SimpleNamespace(
+    with patch("app.providers.sandbox.docker.get_settings", return_value=SimpleNamespace(
         sandbox_command_timeout_seconds=1800,
     )), patch.object(provider, "_run", new=AsyncMock(return_value=completed)) as run:
         result = await provider.execute_args("container", ["npm", "run", "build"])
@@ -108,9 +109,12 @@ async def test_azure_sandbox_round_trips_workspace_and_stops_session(tmp_path):
         token_provider=AsyncMock(return_value="test-token"),
         client=client,
     )
-    with patch("app.providers.get_settings", return_value=SimpleNamespace(
-        sandbox_command_timeout_seconds=1800,
-    )):
+    with patch(
+        "app.providers.sandbox.azure_container_apps.get_settings",
+        return_value=SimpleNamespace(
+            sandbox_command_timeout_seconds=1800,
+        ),
+    ):
         created = await provider.create({
             "workspace": str(workspace),
             "network_mode": "bridge",
@@ -159,9 +163,12 @@ async def test_azure_sandbox_does_not_apply_export_over_newer_host_change(tmp_pa
         token_provider=AsyncMock(return_value="test-token"),
         client=client,
     )
-    with patch("app.providers.get_settings", return_value=SimpleNamespace(
-        sandbox_command_timeout_seconds=1800,
-    )):
+    with patch(
+        "app.providers.sandbox.azure_container_apps.get_settings",
+        return_value=SimpleNamespace(
+            sandbox_command_timeout_seconds=1800,
+        ),
+    ):
         created = await provider.create({"workspace": str(workspace)})
         with pytest.raises(RuntimeError, match="remote export was not applied"):
             await provider.execute_args(created["container_id"], ["python", "-m", "pytest"])
@@ -194,8 +201,8 @@ async def test_model_catalog_uses_ollama_as_configured_provider():
     settings = SimpleNamespace(model_provider="ollama")
     models = [{"name": "local", "provider": "ollama"}]
 
-    with patch("app.model_catalog.get_settings", return_value=settings), patch(
-        "app.model_catalog._ollama_models", new=AsyncMock(return_value=models)
+    with patch("app.model_catalog.catalog.get_settings", return_value=settings), patch(
+        "app.model_catalog.catalog._ollama_models", new=AsyncMock(return_value=models)
     ) as discover:
         result = await list_runtime_models()
 
@@ -210,11 +217,11 @@ async def test_model_catalog_marks_ollama_models_as_fallback():
     )
     fallback = [{"name": "local", "provider": "ollama", "fallback": True}]
 
-    with patch("app.model_catalog.get_settings", return_value=settings), patch(
-        "app.model_catalog._copilot_models",
+    with patch("app.model_catalog.catalog.get_settings", return_value=settings), patch(
+        "app.model_catalog.catalog._copilot_models",
         new=AsyncMock(side_effect=RuntimeError("unavailable")),
     ), patch(
-        "app.model_catalog._ollama_models", new=AsyncMock(return_value=fallback)
+        "app.model_catalog.catalog._ollama_models", new=AsyncMock(return_value=fallback)
     ) as discover:
         result = await list_runtime_models()
 
@@ -234,17 +241,43 @@ async def test_copilot_catalog_checks_authentication_before_listing_models():
         runtime_discovery_timeout_seconds=10,
     )
 
-    with patch("app.model_catalog.get_settings", return_value=settings), patch(
-        "app.model_catalog.shutil.which", return_value="/usr/local/bin/copilot"
+    with patch("app.model_catalog.copilot.get_settings", return_value=settings), patch(
+        "app.model_catalog.copilot.shutil.which", return_value="/usr/local/bin/copilot"
     ), patch(
-        "app.model_catalog._copilot_model_cache", None
+        "app.model_catalog.copilot._copilot_model_cache", None
     ), patch(
-        "app.model_catalog.CopilotClient", return_value=client
+        "app.model_catalog.copilot.CopilotClient", return_value=client
     ), pytest.raises(RuntimeError, match="not authenticated"):
         await _copilot_models()
 
     client.get_auth_status.assert_awaited_once_with()
     client.list_models.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_copilot_catalog_deduplicates_concurrent_discovery():
+    client = AsyncMock()
+    client.__aenter__.return_value = client
+    client.get_auth_status.return_value = SimpleNamespace(isAuthenticated=True)
+    client.list_models.return_value = [{"id": "gpt-test"}]
+    settings = SimpleNamespace(
+        copilot_home="~/.copilot",
+        copilot_cli_path="copilot",
+        runtime_discovery_timeout_seconds=10,
+    )
+
+    with patch("app.model_catalog.copilot.get_settings", return_value=settings), patch(
+        "app.model_catalog.copilot.shutil.which", return_value="/usr/local/bin/copilot"
+    ), patch(
+        "app.model_catalog.copilot._copilot_model_cache", None
+    ), patch(
+        "app.model_catalog.copilot.CopilotClient", return_value=client
+    ) as client_factory:
+        first, second = await asyncio.gather(_copilot_models(), _copilot_models())
+
+    assert first == second
+    client_factory.assert_called_once()
+    client.list_models.assert_awaited_once_with()
 
 
 def test_copilot_billing_metadata_converts_ai_credits_to_usd():

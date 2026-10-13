@@ -1,3 +1,5 @@
+import asyncio
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date, datetime
@@ -8,7 +10,7 @@ from fastapi import HTTPException
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 from pydantic import BaseModel
-from sqlmodel import Session
+from sqlmodel import Session, select
 from starlette.requests import HTTPConnection
 from starlette.responses import JSONResponse
 from starlette.routing import Router
@@ -16,6 +18,8 @@ from starlette.routing import Router
 from .auth import Principal, current_principal
 from .config import get_settings
 from .database import engine
+from .execution_queue import ExecutionConflict, enqueue_execution
+from .models import ExecutionJob, Task
 from .session_service import (
     SessionServiceError,
     continue_durable_session,
@@ -85,11 +89,148 @@ async def continue_session(
         raise ValueError(exc.detail) from exc
 
 
+async def _invoke_workspace_tool(
+    context: Context,
+    task_id: str,
+    tool: str,
+    arguments: dict[str, Any],
+) -> dict[str, Any]:
+    principal = _principal(context, "sandbox.operate")
+    with Session(engine) as session:
+        task = session.exec(select(Task).where(
+            Task.id == task_id,
+            Task.organization_id == principal.organization_id,
+        )).first()
+    if not task:
+        raise ValueError("Session not found")
+
+    payload = {"tool": tool, "arguments": arguments}
+    try:
+        job = enqueue_execution(task_id, "tool", payload)
+    except ExecutionConflict as exc:
+        raise ValueError(str(exc)) from exc
+
+    deadline = time.monotonic() + get_settings().sandbox_command_timeout_seconds + 30
+    while time.monotonic() < deadline:
+        with Session(engine) as session:
+            current = session.get(ExecutionJob, job.id)
+            if not current:
+                raise RuntimeError("Workspace tool execution disappeared")
+            if current.status == "DONE":
+                return {
+                    "execution_job_id": current.id,
+                    **(current.result or {}),
+                }
+            if current.status in {"FAILED", "CANCELLED"}:
+                raise RuntimeError(
+                    current.error or f"Workspace tool execution {current.status.lower()}"
+                )
+        await asyncio.sleep(0.2)
+    raise TimeoutError(f"Workspace tool execution timed out: {job.id}")
+
+
+async def list_workspace_files(
+    context: Context,
+    task_id: str,
+    path: str = ".",
+    pattern: str = "*",
+    offset: int = 0,
+    limit: int = 200,
+) -> dict[str, Any]:
+    return await _invoke_workspace_tool(
+        context,
+        task_id,
+        "list_files",
+        {"path": path, "pattern": pattern, "offset": offset, "limit": limit},
+    )
+
+
+async def search_workspace_text(
+    context: Context,
+    task_id: str,
+    query: str,
+    path: str = ".",
+    pattern: str = "*",
+    max_matches: int = 50,
+) -> dict[str, Any]:
+    return await _invoke_workspace_tool(
+        context,
+        task_id,
+        "search_text",
+        {
+            "query": query,
+            "path": path,
+            "pattern": pattern,
+            "max_matches": max_matches,
+        },
+    )
+
+
+async def read_workspace_file(
+    context: Context,
+    task_id: str,
+    path: str,
+    offset: int = 0,
+    limit: int = 6000,
+) -> dict[str, Any]:
+    return await _invoke_workspace_tool(
+        context,
+        task_id,
+        "read_file",
+        {"path": path, "offset": offset, "limit": limit},
+    )
+
+
+async def write_workspace_file(
+    context: Context,
+    task_id: str,
+    path: str,
+    content: str,
+) -> dict[str, Any]:
+    return await _invoke_workspace_tool(
+        context,
+        task_id,
+        "write_file",
+        {"path": path, "content": content},
+    )
+
+
+async def delete_workspace_file(
+    context: Context,
+    task_id: str,
+    path: str,
+) -> dict[str, Any]:
+    return await _invoke_workspace_tool(
+        context,
+        task_id,
+        "delete_file",
+        {"path": path},
+    )
+
+
+async def run_workspace_command(
+    context: Context,
+    task_id: str,
+    arguments: list[str],
+) -> dict[str, Any]:
+    if not arguments or len(arguments) > 100:
+        raise ValueError("arguments must contain between 1 and 100 values")
+    return await _invoke_workspace_tool(
+        context,
+        task_id,
+        "run_command",
+        {"arguments": arguments},
+    )
+
+
 def _build_gateway() -> FastMCP:
     settings = get_settings()
     server = FastMCP(
         "Autodev Governed Sessions",
-        instructions="Inspect and continue tenant-scoped Autodev sessions.",
+        instructions=(
+            "Inspect and continue tenant-scoped Autodev sessions, and use governed "
+            "workspace tools for repository operations."
+        ),
         streamable_http_path="/mcp",
         sse_path="/sse",
         message_path="/messages",
@@ -108,6 +249,18 @@ def _build_gateway() -> FastMCP:
                     structured_output=True)
     server.add_tool(get_session, name="sessions.get", structured_output=True)
     server.add_tool(continue_session, name="sessions.continue",
+                    structured_output=True)
+    server.add_tool(list_workspace_files, name="workspace.list_files",
+                    structured_output=True)
+    server.add_tool(search_workspace_text, name="workspace.search_text",
+                    structured_output=True)
+    server.add_tool(read_workspace_file, name="workspace.read_file",
+                    structured_output=True)
+    server.add_tool(write_workspace_file, name="workspace.write_file",
+                    structured_output=True)
+    server.add_tool(delete_workspace_file, name="workspace.delete_file",
+                    structured_output=True)
+    server.add_tool(run_workspace_command, name="workspace.run_command",
                     structured_output=True)
     return server
 

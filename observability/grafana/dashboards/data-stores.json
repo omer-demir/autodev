@@ -1,0 +1,84 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat", "title": "PostgreSQL up", "id": 1,
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(pg_up)", "legendFormat": "postgres"}],
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}]}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "PostgreSQL connections", "id": 2,
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(pg_stat_database_numbackends{datname=\"autodev\"})", "legendFormat": "connections"}]
+    },
+    {
+      "type": "stat", "title": "Redis up", "id": 3,
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(redis_up)", "legendFormat": "redis"}],
+      "fieldConfig": {"defaults": {"mappings": [{"options": {"0": {"color": "red", "text": "DOWN"}, "1": {"color": "green", "text": "UP"}}, "type": "value"}]}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "Redis clients", "id": 4,
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max(redis_connected_clients)", "legendFormat": "clients"}]
+    },
+    {
+      "type": "timeseries", "title": "PostgreSQL transactions", "id": 5,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "rate(pg_stat_database_xact_commit{datname=\"autodev\"}[5m])", "legendFormat": "commits/s"},
+        {"expr": "rate(pg_stat_database_xact_rollback{datname=\"autodev\"}[5m])", "legendFormat": "rollbacks/s"}
+      ]
+    },
+    {
+      "type": "timeseries", "title": "PostgreSQL cache hit ratio", "id": 6,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "rate(pg_stat_database_blks_hit{datname=\"autodev\"}[5m]) / clamp_min(rate(pg_stat_database_blks_hit{datname=\"autodev\"}[5m]) + rate(pg_stat_database_blks_read{datname=\"autodev\"}[5m]), 1)", "legendFormat": "hit ratio"}],
+      "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Redis commands", "id": 7,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "rate(redis_commands_processed_total[5m])", "legendFormat": "commands/s"}]
+    },
+    {
+      "type": "timeseries", "title": "Redis memory", "id": 8,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 13},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "redis_memory_used_bytes", "legendFormat": "used"},
+        {"expr": "redis_memory_max_bytes", "legendFormat": "max"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "type": "timeseries", "title": "Database span rate", "id": 9,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (db_system_name, service) (rate(traces_spanmetrics_calls_total{db_system_name!~\"\"}[5m]))", "legendFormat": "{{service}} → {{db_system_name}}"}]
+    },
+    {
+      "type": "logs", "title": "PostgreSQL and Redis logs", "id": 10,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{service_name=~\"postgres|redis\"}", "refId": "A"}],
+      "options": {"showTime": true, "showLabels": true, "wrapLogMessage": true, "sortOrder": "Descending"}
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": ["autodev", "postgresql", "redis"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "AutoDev PostgreSQL and Redis",
+  "uid": "autodev-data-stores",
+  "version": 1
+}

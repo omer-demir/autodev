@@ -1,4 +1,4 @@
-import type { AgentTelemetry, BehavioralEvaluationReadiness, DashboardData, EvaluationDataset, EvaluationRun, EvidenceSummary, GatewayStatus, GitHubRepository, GovernanceOverview, Project, RegistryDefinition, RuntimeStatus, Sandbox, SecurityOverview, SessionHistory, SessionSummary, Task, TaskDetail, TaskObservability } from "./types";
+import type { AgentTelemetry, AuthUser, BehavioralEvaluationReadiness, Connector, ConnectorAccount, DashboardData, EvaluationArtifacts, EvaluationDataset, EvaluationDatasetPage, EvaluationEvent, EvaluationModelCatalog, EvaluationRun, EvidenceSummary, GatewayStatus, GitHubRepository, GovernanceOverview, OrganizationMember, Project, RegistryDefinition, RuntimeCapabilities, RuntimeStatus, Sandbox, SecurityOverview, SessionHistory, SessionSummary, Task, TaskDetail, TaskObservability, TaskPage } from "./types";
 
 // Native development stays same-origin through the Next.js /api rewrite. This avoids
 // remote-workspace localhost forwarding and browser CORS/connection failure modes.
@@ -55,11 +55,48 @@ async function call<T>(path: string, init?: RequestInit, timeoutMs = 15_000): Pr
 }
 
 export const api = {
+  me: () => call<AuthUser>("/api/auth/me"),
+  logout: () => call<void>("/api/auth/logout", { method: "POST" }),
+  members: () => call<OrganizationMember[]>("/api/admin/members"),
+  createMember: (body: { user_id: string; email?: string; display_name?: string; role: string }) =>
+    call<OrganizationMember>("/api/admin/members", { method: "POST", body: JSON.stringify(body) }),
+  updateMember: (userId: string, role: string) => call<OrganizationMember>(`/api/admin/members/${encodeURIComponent(userId)}`, { method: "PATCH", body: JSON.stringify({ role }) }),
+  deleteMember: (userId: string) => call<void>(`/api/admin/members/${encodeURIComponent(userId)}`, { method: "DELETE" }),
   dashboard: () => call<DashboardData>("/api/dashboard"),
-  tasks: () => call<Task[]>("/api/tasks"),
+  tasks: (options: { status?: string; query?: string; sort_by?: string; sort_order?: string; page?: number; page_size?: number } = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    });
+    return call<TaskPage>(`/api/tasks?${params.toString()}`);
+  },
   projects: () => call<Project[]>("/api/projects"),
-  createProject: (body: Omit<Project, "id">) =>
+  createProject: (body: {
+    name: string; repository_path: string; source_type: Project["source_type"];
+    repository_url: string | null; default_branch: string | null;
+    connector_id?: string | null; transport?: "ssh" | "https";
+  }) =>
     call<Project>("/api/projects", { method: "POST", body: JSON.stringify(body) }),
+  deleteProject: (id: number) => call<void>(
+    `/api/projects/${encodeURIComponent(id)}`, { method: "DELETE" },
+  ),
+  connectors: () => call<Connector[]>("/api/connectors"),
+  connectorAccounts: (id: string) => call<{ connector: Connector; accounts: ConnectorAccount[] }>(
+    `/api/connectors/${encodeURIComponent(id)}/accounts`,
+  ),
+  connectorRepositories: (id: string, account: string, query = "") => {
+    const params = new URLSearchParams({ account });
+    if (query) params.set("query", query);
+    return call<{ connector_id: string; account: string; repositories: GitHubRepository[] }>(
+      `/api/connectors/${encodeURIComponent(id)}/repositories?${params.toString()}`,
+    );
+  },
+  verifyConnector: (id: string) => call<{ verified: boolean; app: string; status: string }>(
+    `/api/connectors/${encodeURIComponent(id)}/verify`, { method: "POST" },
+  ),
+  deleteConnector: (id: string) => call<void>(
+    `/api/connectors/${encodeURIComponent(id)}`, { method: "DELETE" },
+  ),
   githubRepositories: (owner: string) =>
     call<{ owner: string; repositories: GitHubRepository[]; authenticated: boolean }>(`/api/connectors/github/repos?owner=${encodeURIComponent(owner)}`),
   githubRepository: (url: string) =>
@@ -79,7 +116,7 @@ export const api = {
   taskObservability: (id: string) => call<TaskObservability>(`/api/tasks/${id}/observability`),
   resolveModelRecovery: (id: string, action: "retry" | "change_model" | "fallback" | "cancel", model?: string) =>
     call(`/api/tasks/${id}/model-recovery`, { method: "POST", body: JSON.stringify({ action, model }) }),
-  createTask: (body: { project_id: number; title: string; description: string; model_name?: string; agent_id?: string; mode?: "change" | "assessment"; verbose_logging?: boolean }) =>
+  createTask: (body: { project_id: number; title: string; description: string; model_name?: string; workflow_id?: string; agent_id?: string; mode?: "change" | "assessment"; verbose_logging?: boolean }) =>
     call<Task>("/api/tasks", { method: "POST", body: JSON.stringify(body) }),
   runTask: (id: string) => call(`/api/tasks/${id}/run`, { method: "POST" }),
   updateTaskMode: (id: string, mode: "change" | "assessment") =>
@@ -98,6 +135,7 @@ export const api = {
   steer: (id: string, content: string) => call(`/api/tasks/${id}/messages`, { method: "POST", body: JSON.stringify({ content }) }),
   openEditor: (id: string) => call<{ opened: boolean; url?: string; workspace: string }>(`/api/tasks/${id}/open`, { method: "POST" }),
   registry: (kind: RegistryDefinition["kind"]) => call<RegistryDefinition[]>(`/api/registry/${kind}`),
+  runtimeCapabilities: () => call<RuntimeCapabilities>("/api/runtime-capabilities"),
   saveDefinition: (kind: RegistryDefinition["kind"], id: string, raw: string) =>
     call<RegistryDefinition>(`/api/registry/${kind}/${encodeURIComponent(id)}`, { method: "PUT", body: JSON.stringify({ raw }) }),
   importIntegration: (url: string, kind: "auto" | "agent" | "skill", identifier?: string) =>
@@ -107,21 +145,64 @@ export const api = {
     }, 30_000),
   deleteDefinition: (kind: RegistryDefinition["kind"], id: string) =>
     call<void>(`/api/registry/${kind}/${encodeURIComponent(id)}`, { method: "DELETE" }),
+  checkDefinition: (kind: RegistryDefinition["kind"], id: string) =>
+    call<{ valid: boolean; check: string; detail: string; status_code?: number }>(
+      `/api/registry/${kind}/${encodeURIComponent(id)}/check`, { method: "POST" },
+    ),
+  assignWorkflowStageAgent: (workflowId: string, stageId: string, agent_id: string) =>
+    call<RegistryDefinition>(`/api/registry/workflows/${encodeURIComponent(workflowId)}/stages/${encodeURIComponent(stageId)}`, {
+      method: "PATCH", body: JSON.stringify({ agent_id }),
+    }),
   evaluations: () => call<EvaluationRun[]>("/api/evaluations"),
+  evaluation: (id: string) => call<EvaluationRun>(`/api/evaluations/${encodeURIComponent(id)}`),
+  cancelEvaluation: (id: string) => call<EvaluationRun>(
+    `/api/evaluations/${encodeURIComponent(id)}/cancel`, { method: "POST" },
+  ),
+  evaluationEvents: (id: string, afterId = 0) => call<EvaluationEvent[]>(`/api/evaluations/${encodeURIComponent(id)}/events?after_id=${afterId}`),
+  evaluationArtifacts: (id: string) => call<EvaluationArtifacts>(`/api/evaluations/${encodeURIComponent(id)}/artifacts`),
   evaluationDatasets: () => call<EvaluationDataset[]>("/api/evaluation-datasets"),
+  evaluationDataset: (id: string) => call<EvaluationDataset>(`/api/evaluation-datasets/${encodeURIComponent(id)}`),
+  evaluationDatasetVersions: (id: string) => call<EvaluationDataset[]>(`/api/evaluation-datasets/${encodeURIComponent(id)}/versions`),
+  evaluationDatasetCatalog: (options: { query?: string; status?: string; agent_id?: string; page?: number; page_size?: number } = {}) => {
+    const params = new URLSearchParams();
+    Object.entries(options).forEach(([key, value]) => {
+      if (value !== undefined && value !== "") params.set(key, String(value));
+    });
+    return call<EvaluationDatasetPage>(`/api/evaluation-datasets/catalog?${params.toString()}`);
+  },
   behavioralEvaluationReadiness: () => call<BehavioralEvaluationReadiness>("/api/evaluations/behavioral/readiness"),
-  createEvaluationDataset: (agent_id: string, suite_id: string) =>
-    call<EvaluationDataset>("/api/evaluation-datasets", { method: "POST", body: JSON.stringify({ agent_id, suite_id }) }),
-  reviewEvaluationDataset: (id: string, scenarios: Record<string, unknown>[], reviewed_by: string) =>
-    call<EvaluationDataset>(`/api/evaluation-datasets/${id}`, { method: "PUT", body: JSON.stringify({ scenarios, reviewed_by }) }),
+  evaluationModels: (provider: "copilot" | "ollama") => call<EvaluationModelCatalog>(
+    `/api/evaluations/models?provider=${encodeURIComponent(provider)}`,
+  ),
+  createEvaluationDataset: (agent_id: string) =>
+    call<EvaluationDataset>("/api/evaluation-datasets", { method: "POST", body: JSON.stringify({ agent_id }) }),
+  ensureEvaluationBaselines: () => call<EvaluationDataset[]>(
+    "/api/evaluation-datasets/baselines", { method: "POST" },
+  ),
+  reviewEvaluationDataset: (
+    id: string, scenarios: Record<string, unknown>[], reviewed_by: string,
+  ) => call<EvaluationDataset>(`/api/evaluation-datasets/${id}`, {
+    method: "PUT", body: JSON.stringify({ scenarios, reviewed_by }),
+  }),
   freezeEvaluationDataset: (id: string, reviewed_by: string) =>
     call<EvaluationDataset>(`/api/evaluation-datasets/${id}/freeze`, { method: "POST", body: JSON.stringify({ reviewed_by }) }),
-  runBehavioralEvaluation: (dataset_id: string, model_name?: string) =>
-    call<EvaluationRun>("/api/evaluations/behavioral", { method: "POST", body: JSON.stringify({ dataset_id, model_name, adapters: ["native", "vally", "waza"] }) }),
-  runDeclarationCheck: (agent_id: string, suite_id: string) =>
-    call<EvaluationRun>("/api/evaluations/declaration", { method: "POST", body: JSON.stringify({ agent_id, suite_id }) }, 120_000),
+  createEvaluationDatasetVersion: (
+    id: string, scenarios: Record<string, unknown>[],
+  ) => call<EvaluationDataset>(`/api/evaluation-datasets/${id}/versions`, {
+    method: "POST", body: JSON.stringify({ scenarios }),
+  }),
+  runBehavioralEvaluation: (agent_id: string, dataset_id: string, model_provider = "ollama", model_name = "gemma4:e2b", verbose_logging = false) =>
+    call<EvaluationRun>("/api/evaluations/behavioral", { method: "POST", body: JSON.stringify({ agent_id, dataset_id, model_provider, model_name, adapters: ["native", "vally", "waza"], verbose_logging }) }),
+  runDeclarationCheck: (agent_id: string, dataset_id: string) =>
+    call<EvaluationRun>("/api/evaluations/declaration", { method: "POST", body: JSON.stringify({ agent_id, dataset_id }) }, 120_000),
   runSecurityEvaluation: (agent_id: string, include_foundry = true) =>
     call<EvaluationRun>("/api/evaluations/security", { method: "POST", body: JSON.stringify({ agent_id, include_foundry }) }, 120_000),
   promoteAgent: (agentId: string) => call<RegistryDefinition>(`/api/agents/${encodeURIComponent(agentId)}/promote`, { method: "POST" }),
+  setAgentEvaluationRequirement: (
+    agentId: string, evaluation_required: boolean, reason: string,
+  ) => call<RegistryDefinition>(
+    `/api/agents/${encodeURIComponent(agentId)}/evaluation-requirement`,
+    { method: "PUT", body: JSON.stringify({ evaluation_required, reason }) },
+  ),
   agentTelemetry: (agentId: string, limit = 20) => call<AgentTelemetry>(`/api/agents/${encodeURIComponent(agentId)}/telemetry?limit=${limit}`),
 };

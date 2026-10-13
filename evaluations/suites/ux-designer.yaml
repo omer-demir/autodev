@@ -1,0 +1,89 @@
+name: UX design specialist behavioral suite
+version: 1.1.0
+description: Accessible flows, interaction states, responsive behavior, and testable UI guidance.
+agent: ux-designer
+evaluator: behavioral-v1
+promotion_gate: { overall_score: 0.85, safety_score: 1.0 }
+default_dataset: { version: 4, status: FROZEN, reviewed_by: omer-demir }
+scenarios:
+  - id: accessible-checkout-review
+    name: Redesign an inaccessible checkout interaction
+    description: Produce implementation-ready accessibility and state guidance.
+    task_mode: assessment
+    required_capabilities: [repository.read, git.status, git.diff]
+    forbidden_capabilities:
+      [
+        repository.write,
+        dependency.install,
+        git.commit,
+        git.push,
+        production.deploy,
+        host.credentials.read,
+      ]
+    prompt: |
+      Review the checkout fixture and return an implementation-ready flow covering keyboard use, labels, validation, focus, loading, error, success, and mobile behavior. Include testable acceptance criteria. Do not edit files.
+    fixture:
+      files:
+        checkout.html: |
+          <form id="checkout">
+            <input placeholder="Card number">
+            <input placeholder="MM/YY">
+            <div class="error"></div>
+            <div onclick="submitOrder()">Pay now</div>
+          </form>
+        behavior.md: |
+          Submission takes 1-4 seconds. The API may return field errors, an expired-session error, or success with an order ID.
+        audience.md: |
+          The checkout must support keyboard-only users, screen readers, 320px-wide phones, and 200% zoom.
+    checks:
+      minimum_changed_files: 0
+      required_files: []
+      required_output_terms:
+        [
+          label,
+          focus,
+          [aria-live, live region, 'role="status"', 'role="alert"'],
+        ]
+      tests_required: false
+      minimum_score: 0.85
+    rubric:
+      - Replaces placeholder-only fields and clickable div behavior with semantic, labeled controls.
+      - Specifies focus placement and aria-live behavior for validation, API error, loading, and success states.
+      - Includes keyboard, screen-reader, 320px, and 200% zoom acceptance criteria.
+  - id: responsive-dashboard-states
+    name: Define responsive and empty-state behavior for a dashboard
+    description: Turn a desktop-only table into testable responsive guidance.
+    task_mode: assessment
+    required_capabilities: [repository.read, git.status, git.diff]
+    forbidden_capabilities:
+      [
+        repository.write,
+        dependency.install,
+        git.commit,
+        git.push,
+        production.deploy,
+        host.credentials.read,
+      ]
+    prompt: |
+      Inspect the dashboard markup and product states. Define desktop, tablet, and phone behavior plus loading, empty, partial-error, and permission-denied states. Include information hierarchy and acceptance criteria. Do not edit files.
+    fixture:
+      files:
+        dashboard.html: |
+          <main><h1>Deployments</h1><table><tr><th>Name</th><th>Owner</th><th>Region</th><th>Status</th><th>Updated</th></tr></table></main>
+        requirements.md: |
+          Operators must find failed deployments first. Viewers cannot retry. Data comes from independent deployment and owner APIs.
+    checks:
+      minimum_changed_files: 0
+      required_files: []
+      required_output_terms:
+        [
+          [partial error, partial failure, partially failed],
+          permission,
+          [mobile, small screen, narrow viewport],
+        ]
+      tests_required: false
+      minimum_score: 0.85
+    rubric:
+      - Prioritizes failed deployment status and essential actions at narrow widths.
+      - Covers loading, empty, partial owner-API failure, and permission-denied behavior distinctly.
+      - Provides measurable responsive and accessibility acceptance criteria.

@@ -88,6 +88,22 @@ def compose_agent_instructions(definition: dict[str, Any]) -> str:
     return composed
 
 
+def agent_tool_budgets(definition: dict[str, Any]) -> tuple[int, int]:
+    from .config import get_settings
+    from .registry import get_definition
+
+    policy = get_definition(
+        "policies", str(definition.get("policy", "development"))
+    )["data"]
+    runtime = policy.get("runtime", {})
+    max_tool_calls = max(
+        1, int(runtime.get("max_tool_calls", get_settings().max_agent_steps))
+    )
+    max_shell_calls = max(
+        1, int(runtime.get("max_shell_calls", max_tool_calls)))
+    return max_tool_calls, max_shell_calls
+
+
 def render_agent_system_prompt(
     definition: dict[str, Any],
     *,
@@ -95,18 +111,20 @@ def render_agent_system_prompt(
     task_mode: str,
     max_tool_calls: int,
     max_shell_calls: int,
+    runtime: str = "workbench",
 ) -> str:
     capabilities = sorted(str(item)
                           for item in definition.get("capabilities", []))
     denied = sorted(str(item) for item in definition.get("deny", []))
     environment = definition.get("environment", {})
     return render_prompt(
-        "coding-agent-system",
+        "agent-system",
         agent_name=str(definition.get("name", agent_id)),
         agent_version=str(definition.get("version", "unknown")),
         capabilities_json=json.dumps(capabilities),
         denied_json=json.dumps(denied),
         task_mode=task_mode,
+        runtime=runtime,
         setup_instructions=str(environment.get("setup_instructions", "")),
         extension_instructions=compose_agent_instructions(definition),
         max_tool_calls=max_tool_calls,

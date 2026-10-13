@@ -4,11 +4,24 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
+import yaml
 
 from app.database import engine
 from app.main import app
-from app.models import Event, Message, Project, Sandbox, Task, TaskArtifact, TaskStatus
+from app.models import (
+    Approval,
+    Event,
+    ExecutionJob,
+    Message,
+    Project,
+    Sandbox,
+    Task,
+    TaskArtifact,
+    TaskStatus,
+    WorkspaceRevision,
+)
+from app.repositories import RepositoryError
 
 
 def test_health():
@@ -16,6 +29,162 @@ def test_health():
         response = client.get("/health")
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
+
+
+def test_task_lists_are_bounded_filterable_sortable_and_paginated():
+    suffix = uuid4().hex
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Listing {suffix}", repository_path="/tmp/listing")
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            for index in range(7):
+                session.add(Task(
+                    id=f"TASK-LIST-{suffix}-{index}",
+                    project_id=project.id,
+                    title=f"Listing {suffix} {index}",
+                    description="Task list coverage",
+                    status=TaskStatus.DONE if index % 2 else TaskStatus.DRAFT,
+                    progress=index,
+                ))
+            session.commit()
+
+        dashboard = client.get("/api/dashboard").json()
+        page = client.get(
+            "/api/tasks",
+            params={
+                "query": suffix,
+                "status": "DONE",
+                "sort_by": "progress",
+                "sort_order": "desc",
+                "page": 2,
+                "page_size": 2,
+            },
+        )
+
+    assert len(dashboard["tasks"]) <= 5
+    assert page.status_code == 200
+    payload = page.json()
+    assert payload["total"] == 3
+    assert payload["page"] == 2
+    assert len(payload["items"]) == 1
+    assert all(item["status"] == "DONE" for item in payload["items"])
+    assert payload["counts"]["done"] >= 3
+
+
+def test_repository_removal_deletes_attached_tasks_and_owned_data():
+    suffix = uuid4().hex
+    task_id = f"TASK-DELETE-{suffix}"
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Delete repository {suffix}",
+                repository_path=f"/tmp/delete-{suffix}",
+                source_type="empty",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            session.add(Task(
+                id=task_id,
+                project_id=project_id,
+                title="Delete attached task",
+                description="Exercise project deletion",
+                status=TaskStatus.DONE,
+            ))
+            session.add(Approval(
+                id=f"APPROVAL-{suffix}", task_id=task_id, action="git.commit"
+            ))
+            session.add(Event(
+                task_id=task_id, type="task.completed", title="Completed"
+            ))
+            session.add(ExecutionJob(
+                id=f"JOB-{suffix}", task_id=task_id, status="DONE"
+            ))
+            session.add(Message(
+                task_id=task_id, role="user", content="Delete this task"
+            ))
+            session.add(Sandbox(
+                id=f"SANDBOX-{suffix}", task_id=task_id, status="KILLED"
+            ))
+            session.add(TaskArtifact(
+                task_id=task_id, kind="changes", content={"files": []}
+            ))
+            session.add(WorkspaceRevision(
+                id=f"REV-{suffix}",
+                task_id=task_id,
+                organization_id="local",
+                digest=suffix,
+                object_key=f"tasks/{task_id}/revision.tar.gz",
+                size_bytes=1,
+            ))
+            session.commit()
+
+        terminate = AsyncMock()
+        with (
+            patch("app.main.terminate_task", terminate),
+            patch("app.main.evidence_provider.delete_task") as delete_evidence,
+            patch("app.main.workspace_snapshots.delete_task") as delete_snapshots,
+            patch("app.main.remove_task_workspace") as delete_workspace,
+        ):
+            response = client.delete(f"/api/projects/{project_id}")
+
+        assert response.status_code == 204
+        assert response.content == b""
+        terminate.assert_awaited_once_with(task_id)
+        delete_evidence.assert_called_once_with(task_id)
+        delete_snapshots.assert_called_once_with(task_id)
+        delete_workspace.assert_called_once_with(task_id)
+        with Session(engine) as session:
+            assert session.get(Project, project_id) is None
+            assert session.get(Task, task_id) is None
+            for model in (
+                Approval,
+                Event,
+                ExecutionJob,
+                Message,
+                Sandbox,
+                TaskArtifact,
+                WorkspaceRevision,
+            ):
+                assert session.exec(
+                    select(model).where(model.task_id == task_id)
+                ).all() == []
+
+
+def test_repository_removal_requires_attached_tasks_to_be_inactive():
+    suffix = uuid4().hex
+    task_id = f"TASK-ACTIVE-{suffix}"
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Active repository {suffix}",
+                repository_path=f"/tmp/active-{suffix}",
+                source_type="empty",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+            session.add(Task(
+                id=task_id,
+                project_id=project_id,
+                title="Active attached task",
+                description="Do not delete while running",
+                status=TaskStatus.IMPLEMENTATION,
+            ))
+            session.commit()
+
+        response = client.delete(f"/api/projects/{project_id}")
+
+        assert response.status_code == 409
+        assert task_id in response.json()["detail"]
+        with Session(engine) as session:
+            assert session.get(Project, project_id) is not None
+            assert session.get(Task, task_id) is not None
 
 
 def test_task_can_be_created_and_started(tmp_path):
@@ -51,6 +220,17 @@ def test_task_can_be_created_and_started(tmp_path):
         task = response.json()
         assert task["status"] == "DRAFT"
         assert task["mode"] == "change"
+        assert task["workflow_id"] == "sdlc"
+        assert task["agent_id"] == "did:local:developer"
+        with Session(engine) as session:
+            workflow_snapshot = session.exec(
+                select(TaskArtifact).where(
+                    TaskArtifact.task_id == task["id"],
+                    TaskArtifact.kind == "workflow-definition",
+                )
+            ).one()
+            assert workflow_snapshot.content["workflow_id"] == "sdlc"
+            assert workflow_snapshot.content["definition"]["name"] == "Governed SDLC"
         marketplace = client.get("/api/marketplace/agents")
         assert marketplace.status_code == 200
         developer = next(
@@ -83,10 +263,73 @@ def test_task_can_be_created_and_started(tmp_path):
         )
         assert mode_response.status_code == 200
         assert mode_response.json()["mode"] == "assessment"
+        cancelled = client.post(f"/api/tasks/{task['id']}/cancel")
+        assert cancelled.status_code == 200
+        assert cancelled.json()["status"] == "CANCELLED"
+        with Session(engine) as session:
+            stored = session.get(Task, task["id"])
+            assert stored is not None
+            assert stored.status == TaskStatus.CANCELLED
+            stored.status = TaskStatus.DRAFT
+            stored.phase = "Intake"
+            session.add(stored)
+            session.commit()
         with patch("app.main.schedule_task") as schedule:
             assert client.post(
                 f"/api/tasks/{task['id']}/run").status_code == 202
             schedule.assert_called_once_with(task["id"])
+
+
+def test_task_creation_accepts_explicit_evaluation_bypass():
+    suffix = uuid4().hex
+    agent_id = f"trial-{suffix}"
+
+    def definition(kind: str, identifier: str) -> dict:
+        if kind == "workflows":
+            return {
+                "data": {
+                    "name": "Trial workflow",
+                    "version": "1.0.0",
+                    "status": "active",
+                    "stages": [],
+                }
+            }
+        assert kind == "agents"
+        assert identifier == agent_id
+        return {
+            "data": {
+                "name": "Trial agent",
+                "version": "1.0.0",
+                "status": "draft",
+                "evaluation_required": False,
+                "identity": {"id": f"did:local:{agent_id}"},
+                "capabilities": ["repository.read"],
+            }
+        }
+
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Bypass trial {suffix}",
+                repository_path=f"/tmp/bypass-{suffix}",
+                source_type="empty",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            project_id = project.id
+        with patch("app.main.get_definition", side_effect=definition):
+            response = client.post("/api/tasks", json={
+                "project_id": project_id,
+                "title": "Try imported agent",
+                "description": "Run before an evaluation dataset exists",
+                "workflow_id": "trial",
+                "agent_id": f"did:local:{agent_id}",
+                "mode": "assessment",
+            })
+
+    assert response.status_code == 201
+    assert response.json()["agent_id"] == f"did:local:{agent_id}"
 
 
 def test_management_registry_and_evaluation():
@@ -103,17 +346,56 @@ def test_management_registry_and_evaluation():
         assert policies.status_code == 200
         assert "development" in {item["id"] for item in policies.json()}
 
+        capabilities = client.get("/api/runtime-capabilities")
+        assert capabilities.status_code == 200
+        assert "repository.read" in capabilities.json()["capabilities"]
+        assert capabilities.json()["resolvers"] == ["command-v1"]
+
+        datasets = client.get("/api/evaluation-datasets").json()
+        dataset = next(
+            item for item in datasets if item["agent_id"] == "developer")
         response = client.post(
             "/api/evaluations/declaration",
-            json={"agent_id": "developer", "suite_id": "baseline"},
+            json={"agent_id": "developer", "dataset_id": dataset["id"]},
         )
         assert response.status_code == 201
         result = response.json()
         assert result["overall_score"] == 1.0
         assert result["scores"]["safety"] == 1.0
         assert result["provenance"] == {
-            "execution": "static", "agent_executed": False
+            "execution": "static", "agent_executed": False,
+            "dataset_hash": dataset["content_hash"],
         }
+
+
+def test_workflow_stage_assignment_revalidates_saved_definition():
+    workflow = {
+        "kind": "workflows",
+        "id": "delivery",
+        "raw": "",
+        "data": {
+            "name": "Delivery",
+            "version": "1.0.0",
+            "phases": [],
+            "stages": [{"id": "review", "agent": "did:local:reviewer"}],
+        },
+    }
+    saved = {**workflow, "data": {**workflow["data"]}}
+    with patch(
+        "app.routers.registry.get_definition",
+        side_effect=[{"id": "security"}, workflow],
+    ), patch(
+        "app.routers.registry.save_definition", return_value=saved
+    ) as save, TestClient(app) as client:
+        response = client.patch(
+            "/api/registry/workflows/delivery/stages/review",
+            json={"agent_id": "security"},
+        )
+
+    assert response.status_code == 200
+    kind, identifier, raw = save.call_args.args
+    assert (kind, identifier) == ("workflows", "delivery")
+    assert yaml.safe_load(raw)["stages"][0]["agent"] == "did:local:security"
 
 
 def test_integration_import_endpoint_uses_governed_importer():
@@ -124,7 +406,7 @@ def test_integration_import_endpoint_uses_governed_importer():
         "data": {"name": "review"},
     }
     with patch(
-        "app.main.import_external_definition",
+        "app.routers.registry.import_external_definition",
         new=AsyncMock(return_value=imported),
     ) as importer, TestClient(app) as client:
         response = client.post(
@@ -190,7 +472,10 @@ def test_publication_waits_for_explicit_scoped_approval(tmp_path):
             ))
             session.commit()
 
-        with patch("app.main.complete_publication", complete):
+        with (
+            patch("app.main.complete_publication", complete),
+            patch("app.main.validate_publication"),
+        ):
             response = client.post(
                 f"/api/tasks/{task_id}/publish",
                 json={"branch": "feature/governed",
@@ -211,7 +496,90 @@ def test_publication_waits_for_explicit_scoped_approval(tmp_path):
         "create_pull_request": True,
         "actions": ["git.push", "pull_request.create"],
     }
-    complete.assert_awaited_once_with(task_id, "feature/governed", True)
+    complete.assert_awaited_once_with(
+        task_id, "feature/governed", True, "local-admin"
+    )
+
+
+def test_pull_request_publication_requires_authentication_before_approval(tmp_path):
+    suffix = uuid4().hex
+    task_id = f"TASK-PUBLISH-AUTH-{suffix}"
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Publish auth {suffix}",
+                source_type="github",
+                repository_path="",
+                repository_url="https://github.com/acme/repo",
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(Task(
+                id=task_id,
+                project_id=project.id,
+                title="Publish governed change",
+                description="Verify authentication preflight",
+                status=TaskStatus.DONE,
+            ))
+            session.commit()
+
+        with patch(
+            "app.main.validate_publication",
+            side_effect=RepositoryError("Disable pull request creation to push with SSH"),
+        ):
+            response = client.post(
+                f"/api/tasks/{task_id}/publish",
+                json={"branch": "feature/ssh", "create_pull_request": True},
+            )
+
+    assert response.status_code == 409
+    assert "push with SSH" in response.json()["detail"]
+
+
+def test_publication_failure_keeps_approval_pending(tmp_path):
+    suffix = uuid4().hex
+    task_id = f"TASK-PUBLISH-FAIL-{suffix}"
+    approval_id = f"APR-PUBLISH-FAIL-{suffix}"
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Publish failure {suffix}", repository_path=str(workspace)
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(Task(
+                id=task_id,
+                project_id=project.id,
+                title="Publish governed change",
+                description="Verify retryable approval",
+                status=TaskStatus.DONE,
+            ))
+            session.add(Approval(
+                id=approval_id,
+                task_id=task_id,
+                action="repository.publish",
+                scope={"branch": "feature/retry", "create_pull_request": False},
+            ))
+            session.commit()
+
+        with patch(
+            "app.main.complete_publication",
+            AsyncMock(side_effect=RepositoryError("SSH push failed")),
+        ):
+            response = client.post(f"/api/approvals/{approval_id}/approve")
+
+        with Session(engine) as session:
+            approval = session.get(Approval, approval_id)
+            assert approval is not None
+            assert approval.status == "PENDING"
+            assert approval.approver_id is None
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "SSH push failed"
 
 
 def test_agent_telemetry_aggregates_run_observability():

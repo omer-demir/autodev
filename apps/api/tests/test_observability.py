@@ -6,7 +6,7 @@ from sqlmodel import Session
 from unittest.mock import MagicMock, patch
 
 from app.database import create_db_and_tables, engine
-from app.observability import _attributes, observe_event
+from app.observability import _attributes, _redis_request_hook, observe_event, observe_worker_job
 from app.workflow import record_event
 
 
@@ -38,6 +38,30 @@ def test_model_call_counts_attempt_before_completion() -> None:
         "autodev.provider": "copilot", "autodev.model": "gpt-test",
         "autodev.type": "model.call", "autodev.severity": "info",
     })
+
+
+def test_worker_metrics_use_bounded_dimensions() -> None:
+    instruments = {"worker_jobs": MagicMock(
+    ), "worker_job_duration": MagicMock()}
+
+    with patch("app.observability._runtime_instruments", return_value=instruments):
+        observe_worker_job(operation="run", status="DONE", duration_ms=250)
+
+    attributes = {"autodev.operation": "run", "autodev.status": "DONE"}
+    instruments["worker_jobs"].add.assert_called_once_with(1, attributes)
+    instruments["worker_job_duration"].record.assert_called_once_with(
+        250, attributes)
+
+
+def test_redis_statement_is_reduced_to_command_name() -> None:
+    span = MagicMock()
+    span.is_recording.return_value = True
+
+    _redis_request_hook(
+        span, object(), ("XADD", "stream", "private payload"), {})
+
+    span.set_attribute.assert_any_call("db.statement", "XADD")
+    span.set_attribute.assert_any_call("db.query.text", "XADD")
 
 
 @pytest.mark.asyncio

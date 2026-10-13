@@ -1,0 +1,2 @@
+class SupervisionConfigurationError(RuntimeError):
+    pass

@@ -7,7 +7,7 @@ Autodev is a governed software-development workbench for running coding agents a
 The primary user journey is:
 
 ```text
-Connect repository -> select promoted agent and model -> run isolated task
+Connect repository or empty workspace -> select promoted agent and model -> run isolated task
 -> research/plan/implement/review -> inspect evidence -> approve or deny publication
 ```
 
@@ -15,7 +15,7 @@ Connect repository -> select promoted agent and model -> run isolated task
 
 | Area                  | Capability                                                                                                   | State                |
 | --------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------- |
-| Repository onboarding | Public GitHub URL, GitHub OAuth browsing, or existing local checkout                                         | Implemented          |
+| Repository onboarding | Public GitHub URL, GitHub OAuth browsing, local checkout, or initialized empty Git workspace                 | Implemented          |
 | Task execution        | Change and read-only assessment modes with live steering                                                     | Implemented          |
 | Agent runtime         | Microsoft Agent Framework with GitHub Copilot, Ollama fallback, or configured Foundry Responses              | Implemented/optional |
 | Agent lifecycle       | Versioned YAML definitions, signed identity records, draft/promotion gate                                    | Implemented          |
@@ -28,7 +28,7 @@ Connect repository -> select promoted agent and model -> run isolated task
 | Evaluation            | Static declaration lint and frozen behavioral evaluation through native, Vally, and Waza adapters            | Implemented          |
 | Security              | Semgrep, Trivy, Gitleaks, capability probes, and optional Foundry content-filter canary                      | Implemented/optional |
 | Observability         | Durable events, artifacts, OpenTelemetry, Prometheus, Tempo, Grafana, and in-app telemetry                   | Implemented/optional |
-| Identity and tenancy  | Local or OIDC principal, organizations, memberships, RBAC, actor-aware approvals                             | Implemented/optional |
+| Identity and tenancy  | Local or OIDC login, opaque sessions, membership UI, RBAC, actor-aware approvals, transport authorization    | Implemented/optional |
 | Interfaces            | Next.js UI, REST/OpenAPI, CLI, WebSocket invalidation, MCP Streamable HTTP and SSE                           | Implemented          |
 
 ## Quick start
@@ -62,7 +62,7 @@ Compose adds Prometheus, Tempo, Grafana, and the OpenTelemetry Collector. The AP
 ## Run a coding task
 
 1. Open the dashboard and select **Connect repository**.
-2. Use a public GitHub URL, connect GitHub for private repositories, or select a local checkout.
+2. Use a public GitHub URL, connect GitHub for private repositories, select a local checkout, or create an empty workspace.
 3. Create a task and choose:
    - **Change repository** to permit governed writes.
    - **Read-only assessment** for reviews and analysis.
@@ -71,7 +71,9 @@ Compose adds Prometheus, Tempo, Grafana, and the OpenTelemetry Collector. The AP
 6. Start the task and watch the phase, timeline, chat, observability, diff, tests, and security output.
 7. During intake, planning, or implementation, add steering in **Chat**. Steering is delivered at the next safe model boundary.
 8. Review the isolated worktree and evidence. A change task cannot succeed without a real diff.
-9. Approve or deny the scoped commit. Push and optional pull-request publication require their own governed boundary.
+9. Approve or deny the scoped commit. Push and optional pull-request publication require a repository remote and their own governed boundary.
+
+For a product-discovery flow with no repository, create an **Empty workspace** and start in **Read-only assessment** mode. The final agent report and research evidence are retained with the durable session. In **Sessions**, choose another promoted agent and provide the next objective to hand off while preserving the worktree and task history.
 
 The original repository is not modified. Each task works in `.workspaces/TASK-NNN/repo`, mounted at `/workspace/project` in a Docker sandbox.
 
@@ -142,7 +144,7 @@ Imported `allowed-tools` remains advisory provenance. It does not grant Workbenc
 5. Mark the dataset reviewed, then freeze it. The content hash makes the executed dataset immutable.
 6. Confirm Docker, Vally, and Waza readiness.
 7. Run **Docker + Vally + Waza**.
-8. Inspect adapter-level results, native task linkage, latency, model calls, token coverage, policy evidence, test output, and security output.
+8. Inspect adapter-level results, evaluation execution IDs, latency, model calls, token coverage, policy evidence, test output, and security output. Evaluation runs do not create product tasks or sessions.
 9. Promote only when the current version satisfies the configured aggregate and safety thresholds and does not regress beyond the allowed delta.
 
 Changing the agent after dataset generation invalidates the dataset and requires a new one.
@@ -200,7 +202,7 @@ The control plane imports the worktree before a command, exports changes afterwa
 
 ## Identity, organizations, and RBAC
 
-Local mode provisions a local administrator and organization. OIDC mode validates bearer or cookie tokens against configured issuer, audience, and JWKS values, then resolves organization membership and role.
+Local mode provisions a local administrator and organization. OIDC browser login uses authorization code with PKCE, validates the ID token against the configured issuer, audience, and JWKS, and creates an opaque HttpOnly server-side session. API and external MCP clients may continue to use bearer tokens. Membership and role are resolved on each request so revocation takes effect without waiting for session expiry.
 
 Built-in roles are:
 
@@ -209,9 +211,9 @@ Built-in roles are:
 | Viewer    | Read                                                               |
 | Developer | Read, project creation, task creation/operation, sandbox operation |
 | Reviewer  | Read, approval decisions, evaluation management                    |
-| Admin     | All permissions, including registry management                     |
+| Admin     | All permissions, including registry and membership management      |
 
-Set `X-Organization-ID` when one identity belongs to multiple organizations. REST, task, evaluation, marketplace, and approval operations are scoped to the active organization.
+Set `X-Organization-ID` for bearer-token requests when one identity belongs to multiple organizations. Browser sessions bind to the organization selected during login. REST, WebSocket, MCP, task, evaluation, marketplace, and approval operations are scoped to the active organization. Admins manage memberships at `/admin`.
 
 ## Continue sessions and connect MCP clients
 

@@ -2,13 +2,19 @@
 
 from __future__ import annotations
 
+import json
+import logging
 import os
+import socket
 from datetime import UTC, datetime
 from typing import Any
 
 from opentelemetry import metrics, trace
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.metrics import Counter, Histogram
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
@@ -23,6 +29,63 @@ _configured = False
 _tracer_provider: TracerProvider | None = None
 _meter_provider: MeterProvider | None = None
 _instruments: dict[str, Counter | Histogram] | None = None
+_logging_configured = False
+
+
+class _TraceContextFilter(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        context = trace.get_current_span().get_span_context()
+        record.trace_id = format(
+            context.trace_id, "032x") if context.is_valid else ""
+        record.span_id = format(
+            context.span_id, "016x") if context.is_valid else ""
+        return True
+
+
+class _PrivacySafeJsonFormatter(logging.Formatter):
+    """Emit bounded operational fields without exception text or local variables."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        payload: dict[str, str] = {
+            "timestamp": datetime.fromtimestamp(record.created, UTC).isoformat(),
+            "severity": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage()[:2_000],
+            "service_name": get_settings().otel_service_name,
+        }
+        trace_id = getattr(record, "trace_id", "")
+        span_id = getattr(record, "span_id", "")
+        if trace_id:
+            payload["trace_id"] = trace_id
+        if span_id:
+            payload["span_id"] = span_id
+        if record.exc_info and record.exc_info[0]:
+            payload["exception_type"] = record.exc_info[0].__name__
+        return json.dumps(payload, separators=(",", ":"), ensure_ascii=True)
+
+
+def configure_logging() -> None:
+    """Decorate process logs for Loki correlation without exporting payload data."""
+    global _logging_configured
+    if _logging_configured:
+        return
+    _logging_configured = True
+    context_filter = _TraceContextFilter()
+    formatter = _PrivacySafeJsonFormatter()
+    loggers = [logging.getLogger(), logging.getLogger("uvicorn.error")]
+    for logger in loggers:
+        for handler in logger.handlers:
+            handler.addFilter(context_filter)
+            handler.setFormatter(formatter)
+
+
+def _redis_request_hook(span: Span, _instance: Any, args: tuple[Any, ...], _kwargs: Any) -> None:
+    """Replace Redis statements because stream payloads may contain private task data."""
+    if not span.is_recording():
+        return
+    command = str(args[0]).upper()[:40] if args else "REDIS"
+    span.set_attribute("db.statement", command)
+    span.set_attribute("db.query.text", command)
 
 
 def _endpoint() -> str | None:
@@ -44,6 +107,8 @@ def configure_observability() -> bool:
         return False
     resource = Resource.create({
         "service.name": get_settings().otel_service_name,
+        "service.namespace": "autodev",
+        "service.instance.id": os.getenv("HOSTNAME") or socket.gethostname(),
         "service.version": "0.1.0",
         "deployment.environment.name": get_settings().execution_mode,
     })
@@ -58,6 +123,15 @@ def configure_observability() -> bool:
     )
     _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(_meter_provider)
+    from .database import engine
+
+    SQLAlchemyInstrumentor().instrument(
+        engine=engine, tracer_provider=_tracer_provider)
+    RedisInstrumentor().instrument(
+        tracer_provider=_tracer_provider,
+        request_hook=_redis_request_hook,
+    )
+    HTTPXClientInstrumentor().instrument(tracer_provider=_tracer_provider)
     return True
 
 
@@ -113,6 +187,18 @@ def _runtime_instruments() -> dict[str, Counter | Histogram]:
             "repository_changes": meter.create_counter(
                 "autodev.repository.files_changed", unit="{file}"
             ),
+            "worker_jobs": meter.create_counter(
+                "autodev.worker.jobs", unit="{job}"
+            ),
+            "worker_job_duration": meter.create_histogram(
+                "autodev.worker.job.duration", unit="ms"
+            ),
+            "http_requests": meter.create_counter(
+                "autodev.http.server.requests", unit="{request}"
+            ),
+            "http_request_duration": meter.create_histogram(
+                "http.server.request.duration", unit="s"
+            ),
         }
     return _instruments
 
@@ -121,7 +207,7 @@ def _attributes(values: dict[str, Any]) -> dict[str, str | int | float | bool]:
     """Keep dimensions bounded and exclude prompts, paths, commands, and tool output."""
     allowed = {
         "agent_id", "capability", "decision", "fallback", "model", "policy",
-        "provider", "status", "task_id", "tool", "type",
+        "operation", "provider", "status", "task_id", "tool", "type",
     }
     result: dict[str, str | int | float | bool] = {}
     for key, value in values.items():
@@ -230,6 +316,27 @@ def observe_session(*, status: str, duration_ms: int, files_changed: int = 0) ->
     if files_changed:
         _runtime_instruments()["repository_changes"].add(
             files_changed, attributes)
+
+
+def observe_worker_job(*, operation: str, status: str, duration_ms: int) -> None:
+    attributes = _attributes({"operation": operation, "status": status})
+    _runtime_instruments()["worker_jobs"].add(1, attributes)
+    _runtime_instruments()["worker_job_duration"].record(
+        duration_ms, attributes)
+
+
+def observe_http_request(
+    *, method: str, route: str, status_code: int, duration_seconds: float
+) -> None:
+    attributes: dict[str, str | int] = {
+        "http.request.method": method[:16],
+        "http.route": route[:200],
+        "http.response.status_code": status_code,
+    }
+    _runtime_instruments()["http_requests"].add(1, attributes)
+    _runtime_instruments()["http_request_duration"].record(
+        duration_seconds, attributes
+    )
 
 
 def mark_error(span: Span, exc: BaseException) -> None:

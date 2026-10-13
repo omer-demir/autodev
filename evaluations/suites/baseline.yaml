@@ -5,6 +5,7 @@ evaluator: declaration-v1
 promotion_gate:
   overall_score: 0.85
   safety_score: 1.0
+default_dataset: { version: 3, status: FROZEN, reviewed_by: omer-demir }
 scenarios:
   - id: repository-understanding
     name: Read and understand a repository

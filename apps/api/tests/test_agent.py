@@ -19,6 +19,11 @@ from app.agent import (
 from app.model_recovery import ModelRecoveryDecision
 from app.prompts import compose_agent_instructions, render_prompt
 from app.providers import Decision, GovernanceDecision
+from app.runtime_supervision import (
+    ActionDecision,
+    ExecutionTier,
+    SupervisionDeniedError,
+)
 
 
 def test_compose_agent_instructions_loads_only_locally_attached_skills(
@@ -73,9 +78,12 @@ def test_coding_prompt_is_loaded_from_prompty():
     rendered = render_prompt(
         "coding-task", task_id="TASK-123", title="Inspect", description="Read files",
         steering_block="- Keep the API",
+        session_context_block="Assistant: The repository is empty.\nUser: Draft a PRD.",
     )
     assert "Task TASK-123: Inspect" in rendered
     assert "Developer steering received" in rendered
+    assert "Context from prior runs" in rendered
+    assert "Assistant: The repository is empty." in rendered
 
 
 def test_large_file_reads_are_paginated(tmp_path):
@@ -160,6 +168,26 @@ class FakeGovernance:
         )
 
 
+class FakeSupervisor:
+    def __init__(self, allowed=True):
+        self.allowed = allowed
+        self.actions = []
+
+    async def before_action(self, task_id, action, agent_id=None):
+        self.actions.append((task_id, action))
+        decision = ActionDecision(
+            allowed=self.allowed,
+            provider="test-supervisor",
+            capability=action.capability,
+            agent_tier=ExecutionTier.STANDARD,
+            required_tier=ExecutionTier.STANDARD,
+            reason="supervision allowed" if self.allowed else "supervision denied",
+        )
+        if not self.allowed:
+            raise SupervisionDeniedError(decision)
+        return decision
+
+
 @pytest.mark.asyncio
 async def test_tool_runtime_enforces_governance_and_records_events(tmp_path):
     (tmp_path / "README.md").write_text("hello", encoding="utf-8")
@@ -171,13 +199,13 @@ async def test_tool_runtime_enforces_governance_and_records_events(tmp_path):
     runtime = ToolRuntime(
         task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
         container_id="unused", callback=callback, sandbox=SimpleNamespace(),
-        governance=FakeGovernance(),
+        governance=FakeGovernance(), supervisor=FakeSupervisor(),
     )
     result = await runtime.execute("read_file", {"path": "README.md"})
 
     assert result["content"] == "hello"
     assert [event[0] for event in events] == [
-        "tool.requested", "tool.allowed", "tool.completed"
+        "tool.requested", "tool.allowed", "runtime_supervision.allowed", "tool.completed"
     ]
 
 
@@ -189,11 +217,31 @@ async def test_tool_runtime_denies_before_file_write(tmp_path):
     runtime = ToolRuntime(
         task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
         container_id="unused", callback=callback, sandbox=SimpleNamespace(),
-        governance=FakeGovernance(Decision.DENY),
+        governance=FakeGovernance(Decision.DENY), supervisor=FakeSupervisor(),
     )
 
     with pytest.raises(PermissionError, match="test decision"):
         await runtime.execute("write_file", {"path": "denied.txt", "content": "no"})
+    assert not (tmp_path / "denied.txt").exists()
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_supervisor_denies_before_file_write(tmp_path):
+    events = []
+
+    async def callback(event_type, title, detail, severity, data):
+        events.append(event_type)
+
+    runtime = ToolRuntime(
+        task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
+        container_id="unused", callback=callback, sandbox=SimpleNamespace(),
+        governance=FakeGovernance(), supervisor=FakeSupervisor(allowed=False),
+    )
+
+    with pytest.raises(PermissionError, match="supervision denied"):
+        await runtime.execute("write_file", {"path": "denied.txt", "content": "no"})
+
+    assert "runtime_supervision.denied" in events
     assert not (tmp_path / "denied.txt").exists()
 
 
@@ -207,7 +255,7 @@ async def test_tool_runtime_records_unclassified_command_denial(tmp_path):
     runtime = ToolRuntime(
         task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
         container_id="unused", callback=callback, sandbox=SimpleNamespace(),
-        governance=FakeGovernance(),
+        governance=FakeGovernance(), supervisor=FakeSupervisor(),
     )
 
     with pytest.raises(ValueError, match="outside the governed"):
@@ -230,7 +278,7 @@ async def test_tool_runtime_uses_explicit_policy_invocation_budget(tmp_path):
     runtime = ToolRuntime(
         task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
         container_id="unused", callback=callback, sandbox=SimpleNamespace(),
-        governance=FakeGovernance(), max_tool_invocations=2,
+        governance=FakeGovernance(), supervisor=FakeSupervisor(), max_tool_invocations=2,
     )
 
     await runtime.execute("read_file", {"path": "README.md"})
@@ -296,6 +344,7 @@ async def test_agent_framework_session_receives_steering_and_runtime_context(tmp
     runtime.settings = _runtime_settings()
     runtime.sandbox = SimpleNamespace()
     runtime.governance = FakeGovernance()
+    runtime.supervisor = FakeSupervisor()
     runtime._copilot_agent = lambda *args: fake
     steering_polls = 0
 
@@ -334,6 +383,7 @@ async def test_operator_retry_reuses_agent_framework_session(tmp_path):
     runtime.settings = _runtime_settings()
     runtime.sandbox = SimpleNamespace()
     runtime.governance = FakeGovernance()
+    runtime.supervisor = FakeSupervisor()
     runtime._copilot_agent = lambda *args: agent
     recoveries = []
 
@@ -370,7 +420,7 @@ def test_copilot_agent_uses_workbench_timeout_and_disables_file_hooks(tmp_path):
         captured.update(kwargs)
         return object()
 
-    with patch("app.agent.GitHubCopilotAgent", side_effect=construct):
+    with patch("app.agent.runtime.GitHubCopilotAgent", side_effect=construct):
         runtime._copilot_agent("instructions", "auto", tmp_path)
 
     options = captured["default_options"]

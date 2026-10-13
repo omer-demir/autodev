@@ -2,34 +2,74 @@ name: Developer Agent
 version: 1.1.0
 description: Implements repository changes and validates them in the task sandbox.
 status: promoted
-identity: { id: "did:local:developer" }
-instructions: Use the attached RPI skills as the default execution loop and ground every phase in tool evidence.
-skills: [rpi-orchestrator, rpi-research, rpi-plan, rpi-implement, rpi-review]
+identity:
+  id: did:local:developer
+instructions: Use the attached RPI skills as the default execution loop and ground
+  every phase in tool evidence.
+skills:
+- rpi-orchestrator
+- rpi-research
+- rpi-plan
+- rpi-implement
+- rpi-review
 policy: development
+evaluation_suite: developer
 environment:
   image: agentic-sdlc-sandbox:local
   network_mode: bridge
   workspace_access: read-write
   pool_profile: python-hyperv-2cpu-2gi-egress
-  setup_instructions: Inspect manifests and lockfiles, install required project dependencies using the repository package manager, and run the repository's own checks.
+  setup_instructions: Inspect manifests and lockfiles, install required project dependencies
+    using the repository package manager, and run the repository's own checks.
 model:
-  {
-    provider: copilot,
-    name: auto,
-    fallback: { provider: ollama, name: "gemma4:e2b" },
-  }
+  provider: copilot
+  name: auto
+  fallback:
+    provider: ollama
+    name: gemma4:e2b
 capabilities:
-  [
-    repository.read,
-    repository.write,
-    test.run,
-    build.run,
-    dependency.install,
-    security.scan,
-    git.status,
-    git.diff,
-  ]
-mcp_servers: [workspace]
-harness: { id: workspace, version: 1.0.0 }
-approval: [git.commit, git.push]
-deny: [production.deploy, host.credentials.read]
+- repository.read
+- repository.write
+- test.run
+- build.run
+- dependency.install
+- security.scan
+- git.status
+- git.diff
+mcp_servers:
+- workspace
+harness:
+  id: workspace
+  version: 1.0.0
+approval:
+- git.commit
+- git.push
+deny:
+- production.deploy
+- host.credentials.read
+promotion:
+  evaluation_run_id: EVAL-7B3CF955996D
+  dataset_id: DATASET-56A35A475781
+  overall_score: 0.9333
+  comparison:
+    baseline_run_id: null
+    score_delta: null
+    regression: false
+    reason: No prior-version behavioral baseline
+  prompt_defense:
+    min_grade: C
+    grade: B
+    score: 88
+    coverage: 15/17
+    defended: 15
+    total: 17
+    missing_vectors:
+    - transaction-guardrails
+    - skill-provenance
+    prompt_hash: 99c510316ba20e1690c6585026c1e7941f00f222ebfbcebb1b4faa9518755ae0
+    blocking: false
+evaluation_required: false
+evaluation_override:
+  approved_by: local-admin
+  reason: Local test
+  approved_at: '2026-10-11T19:58:02.445836+00:00'

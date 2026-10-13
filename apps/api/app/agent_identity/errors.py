@@ -1,0 +1,2 @@
+class AgentIdentityError(RuntimeError):
+    pass

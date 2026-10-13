@@ -1,0 +1,75 @@
+name: Implementation
+version: 1.0.0
+description: Implements story IDs across applicable disciplines, then tests, verifies, improves, and prepares review.
+status: active
+default_mode: change
+phases:
+  - { id: planning, status: PLANNING, label: Story intake, progress: 15 }
+  - {
+      id: implementation,
+      status: IMPLEMENTATION,
+      label: Implementation,
+      progress: 35,
+    }
+  - { id: testing, status: TESTING, label: Verification, progress: 65 }
+  - { id: review, status: REVIEW, label: Review, progress: 88 }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: sequential, max_parallel: 1 }
+stages:
+  - id: story-intake
+    agent: did:local:product-planner
+    responsibility: Resolve requested story IDs, acceptance criteria, dependencies, and discipline applicability without changing scope.
+    inputs: [request, messages, workspace]
+    outputs: [story-context]
+  - id: backend
+    agent: did:local:backend-implementer
+    responsibility: Implement applicable backend story work and explicitly report non-applicable story IDs.
+    inputs: [request, story-context, workspace]
+    outputs: [backend-result]
+  - id: frontend
+    agent: did:local:frontend-implementer
+    responsibility: Implement applicable frontend story work and explicitly report non-applicable story IDs.
+    inputs: [request, story-context, backend-result, workspace]
+    outputs: [frontend-result]
+  - id: infrastructure
+    agent: did:local:infrastructure-implementer
+    responsibility: Implement applicable infrastructure story work without deployment and report non-applicable story IDs.
+    inputs: [request, story-context, backend-result, frontend-result, workspace]
+    outputs: [infrastructure-result]
+  - id: mobile
+    agent: did:local:mobile-implementer
+    responsibility: Implement applicable mobile story work and explicitly report non-applicable story IDs.
+    inputs: [request, story-context, infrastructure-result, workspace]
+    outputs: [mobile-result]
+  - id: test-and-verify
+    agent: did:local:tester
+    responsibility: Test acceptance criteria for all applicable story IDs and identify focused improvements.
+    inputs:
+      [
+        request,
+        story-context,
+        backend-result,
+        frontend-result,
+        infrastructure-result,
+        mobile-result,
+        workspace,
+      ]
+    outputs: [verification-report]
+  - id: improve
+    agent: did:local:backend-implementer
+    responsibility: Apply evidence-backed fixes from verification while preserving story scope.
+    inputs: [request, story-context, verification-report, workspace]
+    outputs: [improvement-result]
+  - id: pr-review
+    agent: did:local:delivery-reviewer
+    responsibility: Review the final diff, tests, security evidence, story acceptance, and pull-request readiness.
+    inputs:
+      [
+        request,
+        story-context,
+        verification-report,
+        improvement-result,
+        workspace,
+      ]
+    outputs: [pr-review]
+    handoff: { include: [summary, artifacts, workspace] }

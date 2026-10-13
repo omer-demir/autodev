@@ -3,8 +3,7 @@ from typing import Any
 from agent_compliance.prompt_defense import PromptDefenseConfig, PromptDefenseEvaluator
 
 from .config import get_settings
-from .prompts import render_agent_system_prompt
-from .registry import get_definition
+from .prompts import agent_tool_budgets, render_agent_system_prompt
 
 _GRADES = {"A", "B", "C", "D", "F"}
 
@@ -16,16 +15,7 @@ def evaluate_agent_prompt(agent_id: str, definition: dict[str, Any]) -> dict[str
         raise ValueError(
             "WORKBENCH_PROMPT_DEFENSE_MIN_GRADE must be one of A, B, C, D, or F"
         )
-    policy = get_definition(
-        "policies", str(definition.get("policy", "development"))
-    )["data"]
-    policy_runtime = policy.get("runtime", {})
-    max_tool_calls = max(
-        1, int(policy_runtime.get("max_tool_calls", settings.max_agent_steps))
-    )
-    max_shell_calls = max(
-        1, int(policy_runtime.get("max_shell_calls", max_tool_calls))
-    )
+    max_tool_calls, max_shell_calls = agent_tool_budgets(definition)
     prompt = render_agent_system_prompt(
         definition,
         agent_id=agent_id,

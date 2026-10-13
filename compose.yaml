@@ -1,16 +1,71 @@
 services:
+  postgres:
+    image: postgres:17-alpine
+    labels:
+      dev.autodev.logs: "true"
+    environment:
+      POSTGRES_DB: autodev
+      POSTGRES_USER: autodev
+      POSTGRES_PASSWORD: autodev-local
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autodev -d autodev"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports: ["5432:5432"]
+    networks: [control]
+  redis:
+    image: redis:7.4-alpine
+    labels:
+      dev.autodev.logs: "true"
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - redis-data:/data
+    ports: ["6379:6379"]
+    networks: [control]
+  azurite:
+    image: mcr.microsoft.com/azure-storage/azurite:3.35.0
+    command: ["azurite-blob", "--blobHost", "0.0.0.0", "--location", "/data", "--skipApiVersionCheck"]
+    environment:
+      AZURITE_ACCOUNTS: autodev:YXV0b2Rldi1sb2NhbC1zdG9yYWdlLWtleS0zMmJ5dGVz
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:10000/autodev?comp=list').then(() => process.exit(0)).catch(() => process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - azurite-data:/data
+    ports: ["10000:10000"]
+    networks: [control]
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     ports: ["8000:8000"]
+    labels:
+      dev.autodev.logs: "true"
     environment:
-      WORKBENCH_DATABASE_URL: sqlite:////data/workbench.db
+      WORKBENCH_DATABASE_URL: postgresql+psycopg://autodev:autodev-local@postgres:5432/autodev
+      WORKBENCH_EXECUTION_DISPATCH: durable
+      WORKBENCH_REDIS_URL: redis://redis:6379/0
+      WORKBENCH_EVIDENCE_PROVIDER: azure_blob
       WORKBENCH_EVIDENCE_DIR: /data/evidence
       WORKBENCH_WORKSPACE_DIR: /workspaces
+      WORKBENCH_WORKSPACE_SNAPSHOT_PROVIDER: azure_blob
+      WORKBENCH_WORKSPACE_SNAPSHOT_REQUIRED: "true"
+      WORKBENCH_AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=autodev;AccountKey=YXV0b2Rldi1sb2NhbC1zdG9yYWdlLWtleS0zMmJ5dGVz;BlobEndpoint=http://azurite:10000/autodev;
       WORKBENCH_DOCKER_WORKSPACE_HOST: ${PWD}/.workspaces
       WORKBENCH_EXECUTION_MODE: real
       WORKBENCH_GOVERNANCE_PROVIDER: ${WORKBENCH_GOVERNANCE_PROVIDER:-agent_os}
+      WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER: ${WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER:-microsoft_agent_hypervisor}
+      WORKBENCH_RUNTIME_SUPERVISOR_DEFAULT_TRUST: ${WORKBENCH_RUNTIME_SUPERVISOR_DEFAULT_TRUST:-0.7}
       WORKBENCH_PROMPT_DEFENSE_MIN_GRADE: ${WORKBENCH_PROMPT_DEFENSE_MIN_GRADE:-C}
       WORKBENCH_AGENT_IDENTITY_DIR: /data/agentmesh
       WORKBENCH_MODEL_PROVIDER: ${WORKBENCH_MODEL_PROVIDER:-copilot}
@@ -18,6 +73,8 @@ services:
       WORKBENCH_OLLAMA_URL: http://host.docker.internal:11434
       WORKBENCH_MODEL_NAME: ${WORKBENCH_MODEL_NAME:-auto}
       WORKBENCH_MODEL_FALLBACK_NAME: ${WORKBENCH_MODEL_FALLBACK_NAME:-gemma4:e2b}
+      WORKBENCH_EVALUATOR_PROVIDER: ${WORKBENCH_EVALUATOR_PROVIDER:-ollama}
+      WORKBENCH_EVALUATOR_MODEL: ${WORKBENCH_EVALUATOR_MODEL:-gemma4:e2b}
       WORKBENCH_MODEL_REQUEST_TIMEOUT_SECONDS: ${WORKBENCH_MODEL_REQUEST_TIMEOUT_SECONDS:-300}
       WORKBENCH_AGENT_TURN_TIMEOUT_SECONDS: ${WORKBENCH_AGENT_TURN_TIMEOUT_SECONDS:-1800}
       WORKBENCH_MODEL_RECOVERY_TIMEOUT_SECONDS: ${WORKBENCH_MODEL_RECOVERY_TIMEOUT_SECONDS:-600}
@@ -27,37 +84,123 @@ services:
       WORKBENCH_FOUNDRY_MODEL: ${WORKBENCH_FOUNDRY_MODEL:-gpt-5.4-mini}
       WORKBENCH_MODEL_PRICING_JSON: '${WORKBENCH_MODEL_PRICING_JSON:-{}}'
       WORKBENCH_COPILOT_HOME: /data/copilot
+      COPILOT_HOME: /data/copilot
       COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
       GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
       WORKBENCH_GITHUB_TOKEN: ${GITHUB_TOKEN:-}
       WORKBENCH_GITHUB_OAUTH_CLIENT_ID: ${WORKBENCH_GITHUB_OAUTH_CLIENT_ID:-}
       WORKBENCH_GITHUB_OAUTH_CLIENT_SECRET: ${WORKBENCH_GITHUB_OAUTH_CLIENT_SECRET:-}
+      WORKBENCH_GITHUB_APP_ID: ${WORKBENCH_GITHUB_APP_ID:-}
+      WORKBENCH_GITHUB_APP_SLUG: ${WORKBENCH_GITHUB_APP_SLUG:-}
+      WORKBENCH_GITHUB_APP_CLIENT_ID: ${WORKBENCH_GITHUB_APP_CLIENT_ID:-}
+      WORKBENCH_GITHUB_APP_CLIENT_SECRET: ${WORKBENCH_GITHUB_APP_CLIENT_SECRET:-}
+      WORKBENCH_GITHUB_APP_PRIVATE_KEY: ${WORKBENCH_GITHUB_APP_PRIVATE_KEY:-}
+      WORKBENCH_GITHUB_APP_PRIVATE_KEY_FILE: ${WORKBENCH_GITHUB_APP_PRIVATE_KEY_FILE:-}
+      WORKBENCH_API_URL: ${WORKBENCH_API_URL:-http://localhost:8000}
+      WORKBENCH_CREDENTIAL_PROVIDER: ${WORKBENCH_CREDENTIAL_PROVIDER:-encrypted_database}
+      WORKBENCH_CREDENTIAL_MASTER_KEY: ${WORKBENCH_CREDENTIAL_MASTER_KEY:-autodev-local-development-only}
       WORKBENCH_WEB_APP_URL: http://localhost:3000
       WORKBENCH_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       WORKBENCH_OTEL_SERVICE_NAME: autodev-api
     volumes:
       - workbench-data:/data
       - ${PWD}/.workspaces:/workspaces
-      - ${PWD}/agents:/app/agents
-      - ${PWD}/skills:/app/skills
-      - ${PWD}/harnesses:/app/harnesses
-      - ${PWD}/capability-catalogs:/app/capability-catalogs
-      - ${PWD}/mcp:/app/mcp
-      - ${PWD}/workflows:/app/workflows
-      - ${PWD}/evaluations:/app/evaluations
-      - ${PWD}/policies:/app/policies
-      - ${PWD}/prompts:/app/prompts:ro
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts: ["host.docker.internal:host-gateway"]
-    depends_on: [otel-collector]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+      azurite: {condition: service_healthy}
+      otel-collector: {condition: service_started}
+    networks: [control]
+  worker:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    command: ["python", "-m", "app.worker"]
+    labels:
+      dev.autodev.logs: "true"
+    environment:
+      WORKBENCH_DATABASE_URL: postgresql+psycopg://autodev:autodev-local@postgres:5432/autodev
+      WORKBENCH_EXECUTION_DISPATCH: durable
+      WORKBENCH_REDIS_URL: redis://redis:6379/0
+      WORKBENCH_EVIDENCE_PROVIDER: azure_blob
+      WORKBENCH_EVIDENCE_DIR: /data/evidence
+      WORKBENCH_WORKSPACE_DIR: /workspaces
+      WORKBENCH_WORKSPACE_SNAPSHOT_PROVIDER: azure_blob
+      WORKBENCH_WORKSPACE_SNAPSHOT_REQUIRED: "true"
+      WORKBENCH_AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=autodev;AccountKey=YXV0b2Rldi1sb2NhbC1zdG9yYWdlLWtleS0zMmJ5dGVz;BlobEndpoint=http://azurite:10000/autodev;
+      WORKBENCH_DOCKER_WORKSPACE_HOST: ${PWD}/.workspaces
+      WORKBENCH_EXECUTION_MODE: real
+      WORKBENCH_GOVERNANCE_PROVIDER: ${WORKBENCH_GOVERNANCE_PROVIDER:-agent_os}
+      WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER: ${WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER:-microsoft_agent_hypervisor}
+      WORKBENCH_MODEL_PROVIDER: ${WORKBENCH_MODEL_PROVIDER:-copilot}
+      WORKBENCH_MODEL_FALLBACK_PROVIDER: ${WORKBENCH_MODEL_FALLBACK_PROVIDER:-ollama}
+      WORKBENCH_OLLAMA_URL: http://host.docker.internal:11434
+      WORKBENCH_MODEL_NAME: ${WORKBENCH_MODEL_NAME:-auto}
+      WORKBENCH_MODEL_FALLBACK_NAME: ${WORKBENCH_MODEL_FALLBACK_NAME:-gemma4:e2b}
+      WORKBENCH_COPILOT_HOME: /data/copilot
+      COPILOT_HOME: /data/copilot
+      COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
+      GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
+      WORKBENCH_GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      WORKBENCH_GITHUB_APP_ID: ${WORKBENCH_GITHUB_APP_ID:-}
+      WORKBENCH_GITHUB_APP_SLUG: ${WORKBENCH_GITHUB_APP_SLUG:-}
+      WORKBENCH_GITHUB_APP_CLIENT_ID: ${WORKBENCH_GITHUB_APP_CLIENT_ID:-}
+      WORKBENCH_GITHUB_APP_CLIENT_SECRET: ${WORKBENCH_GITHUB_APP_CLIENT_SECRET:-}
+      WORKBENCH_GITHUB_APP_PRIVATE_KEY: ${WORKBENCH_GITHUB_APP_PRIVATE_KEY:-}
+      WORKBENCH_GITHUB_APP_PRIVATE_KEY_FILE: ${WORKBENCH_GITHUB_APP_PRIVATE_KEY_FILE:-}
+      WORKBENCH_API_URL: ${WORKBENCH_API_URL:-http://localhost:8000}
+      WORKBENCH_CREDENTIAL_PROVIDER: ${WORKBENCH_CREDENTIAL_PROVIDER:-encrypted_database}
+      WORKBENCH_CREDENTIAL_MASTER_KEY: ${WORKBENCH_CREDENTIAL_MASTER_KEY:-autodev-local-development-only}
+      WORKBENCH_OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      WORKBENCH_OTEL_SERVICE_NAME: autodev-worker
+    volumes:
+      - workbench-data:/data
+      - ${PWD}/.workspaces:/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    extra_hosts: ["host.docker.internal:host-gateway"]
+    depends_on:
+      api: {condition: service_healthy}
     networks: [control]
   web:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
-      args: {NEXT_PUBLIC_API_URL: "http://localhost:8000"}
+      args:
+        NEXT_PUBLIC_API_URL: http://localhost:8000
+        WORKBENCH_API_URL: http://api:8000
+        OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     ports: ["3000:3000"]
+    environment:
+      WORKBENCH_API_URL: http://api:8000
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_EXPORTER_OTLP_PROTOCOL: http/protobuf
+      OTEL_SERVICE_NAME: autodev-web
+      OTEL_RESOURCE_ATTRIBUTES: service.namespace=autodev,deployment.environment.name=local
+      NEXT_TELEMETRY_DISABLED: "1"
+    labels:
+      dev.autodev.logs: "true"
     depends_on: [api]
+    networks: [control]
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://autodev:autodev-local@postgres:5432/autodev?sslmode=disable
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [control]
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.77.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    depends_on:
+      redis: {condition: service_healthy}
     networks: [control]
   otel-collector:
     build:
@@ -80,11 +223,37 @@ services:
     build:
       context: .
       dockerfile: observability/prometheus.Dockerfile
-    command: ["--config.file=/etc/prometheus/autodev.yml"]
+    command:
+      - --config.file=/etc/prometheus/autodev.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-remote-write-receiver
     volumes:
       - prometheus-data:/prometheus
     ports: ["9090:9090"]
-    depends_on: [otel-collector]
+    depends_on: [otel-collector, postgres-exporter, redis-exporter]
+    networks: [control]
+  loki:
+    build:
+      context: .
+      dockerfile: observability/loki.Dockerfile
+    command: ["-config.file=/etc/loki/loki.yaml"]
+    volumes:
+      - loki-data:/loki
+    ports: ["3100:3100"]
+    networks: [control]
+  alloy:
+    build:
+      context: .
+      dockerfile: observability/alloy.Dockerfile
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - alloy-data:/var/lib/alloy/data
+    depends_on: [loki]
     networks: [control]
   grafana:
     build:
@@ -97,13 +266,18 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
     ports: ["3001:3000"]
-    depends_on: [prometheus, tempo]
+    depends_on: [prometheus, tempo, loki]
     networks: [control]
 
 networks:
   control: {}
 volumes:
+  postgres-data: {}
+  redis-data: {}
+  azurite-data: {}
   workbench-data: {}
   tempo-data: {}
   prometheus-data: {}
   grafana-data: {}
+  loki-data: {}
+  alloy-data: {}

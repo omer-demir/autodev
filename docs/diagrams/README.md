@@ -2,6 +2,8 @@
 
 The files in this directory are editable Draw.io sources. Open them in [diagrams.net](https://app.diagrams.net/), the Draw.io desktop application, or the VS Code Draw.io extension.
 
+For implementation flows with inline hand-drawn Mermaid sketches, see the [architecture design deep dives](../design/README.md). The two catalogs serve different needs: Draw.io captures formal deployment and trust boundaries, while the deep dives keep behavior sketches beside the technical explanation.
+
 | Drawing                                             | View                                                          | Intended use                        |
 | --------------------------------------------------- | ------------------------------------------------------------- | ----------------------------------- |
 | [General architecture](general-architecture.drawio) | Product context and trust boundaries                          | Executive and architecture overview |

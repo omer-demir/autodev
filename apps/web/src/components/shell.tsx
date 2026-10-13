@@ -1,21 +1,28 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState } from "react";
 import {
-  Activity, Blocks, Bot, Box, ChevronRight, CircleGauge, FileCheck2,
-  Fingerprint, GitPullRequest, Hexagon, LockKeyhole, Scale, Settings, ShieldCheck,
-  MessagesSquare,
+  Activity, Blocks, Bot, Box, Cable, ChevronRight, CircleGauge, Database, FileCheck2,
+  Fingerprint, FolderGit2, GitPullRequest, Hexagon, LockKeyhole, Scale, Settings, ShieldCheck,
+  LogIn, LogOut, MessagesSquare, Users,
 } from "lucide-react";
+import { api } from "@/lib/api";
+import type { AuthUser } from "@/lib/types";
 
 const nav = [
-  { label: "Workspace", items: [{ href: "/", label: "Dashboard", icon: CircleGauge }, { href: "/tasks", label: "Tasks", icon: FileCheck2 }, { href: "/sessions", label: "Sessions", icon: MessagesSquare }] },
+  { label: "Workspace", items: [{ href: "/", label: "Dashboard", icon: CircleGauge }, { href: "/repositories", label: "Repositories", icon: FolderGit2 }, { href: "/tasks", label: "Tasks", icon: FileCheck2 }, { href: "/sessions", label: "Sessions", icon: MessagesSquare }] },
   { label: "Runtime", items: [{ href: "/management", label: "Agents & tools", icon: Bot }, { href: "/sandboxes", label: "Sandboxes", icon: Box }] },
-  { label: "Control", items: [{ href: "/evaluations", label: "Evaluations", icon: Fingerprint }, { href: "/security", label: "Security", icon: ShieldCheck }, { href: "/governance", label: "Governance", icon: Scale }, { href: "/evidence", label: "Evidence", icon: Blocks }] },
+  { label: "Control", items: [{ href: "/connectors", label: "Connections", icon: Cable }, { href: "/datasets", label: "Datasets", icon: Database }, { href: "/evaluations", label: "Evaluations", icon: Fingerprint }, { href: "/security", label: "Security", icon: ShieldCheck }, { href: "/governance", label: "Governance", icon: Scale }, { href: "/evidence", label: "Evidence", icon: Blocks }, { href: "/admin", label: "Members", icon: Users }] },
 ];
 
 export function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const [user, setUser] = useState<AuthUser | null>(null);
+  useEffect(() => { const timer = window.setTimeout(() => { void api.me().then(setUser).catch(() => setUser(null)); }, 0); return () => window.clearTimeout(timer); }, []);
+  async function logout() { await api.logout(); router.push("/login"); }
   return (
     <div className="min-h-screen">
       <aside className="glass fixed inset-y-0 left-0 z-30 hidden w-60 border-r border-white/[.07] lg:flex lg:flex-col">
@@ -38,7 +45,7 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="lg:pl-60">
         <header className="glass sticky top-0 z-20 flex h-17 items-center justify-between border-b border-white/[.07] px-5 lg:px-8">
           <div className="flex items-center gap-2 text-xs text-slate-500"><LockKeyhole className="size-3.5 text-teal-300" /> Governed execution <span className="text-slate-700">/</span> <span className="text-slate-300">development-v1</span></div>
-          <div className="flex items-center gap-4"><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-black/20 px-3 py-1.5 text-xs text-slate-400 sm:flex"><Activity className="size-3.5 text-emerald-400" /> All systems nominal</div><button aria-label="Pull requests" className="rounded-lg p-2 text-slate-500 hover:bg-white/[.05] hover:text-white"><GitPullRequest className="size-4" /></button><div className="grid size-8 place-items-center rounded-full bg-gradient-to-br from-teal-300 to-blue-500 text-xs font-bold text-slate-950">DV</div></div>
+          <div className="flex items-center gap-3"><div className="hidden items-center gap-2 rounded-full border border-white/[.08] bg-black/20 px-3 py-1.5 text-xs text-slate-400 sm:flex"><Activity className="size-3.5 text-emerald-400" /> All systems nominal</div><button aria-label="Pull requests" className="rounded-lg p-2 text-slate-500 hover:bg-white/[.05] hover:text-white"><GitPullRequest className="size-4" /></button>{user ? <><div className="hidden text-right sm:block"><p className="text-xs text-slate-300">{user.email || user.user_id}</p><p className="text-[10px] text-slate-600">{user.organization_id} · {user.role}</p></div>{user.auth_mode === "oidc" && <button title="Sign out" aria-label="Sign out" onClick={() => void logout()} className="p-2 text-slate-500 hover:text-white"><LogOut className="size-4" /></button>}</> : <Link href="/login" className="inline-flex items-center gap-2 text-xs text-slate-300"><LogIn className="size-4" />Sign in</Link>}</div>
         </header>
         <main className="grid-fade min-h-[calc(100vh-68px)]">{children}</main>
       </div>

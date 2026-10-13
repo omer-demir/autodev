@@ -84,7 +84,7 @@ Instructions.
 
 def test_import_url_rejects_private_resolution(monkeypatch):
     monkeypatch.setattr(
-        "app.integrations.socket.getaddrinfo",
+        "app.integrations.security.socket.getaddrinfo",
         lambda *args, **kwargs: [(2, 1, 6, "", ("127.0.0.1", 443))],
     )
 

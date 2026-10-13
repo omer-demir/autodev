@@ -48,7 +48,7 @@ def test_agent_harness_fails_closed_when_pinned_version_is_unavailable():
     }
 
     with patch(
-        "app.harness.get_definition",
+        "app.harness.resolver.get_definition",
         side_effect=lambda kind, _identifier: documents[kind],
     ), pytest.raises(RegistryError, match="version 9.9.9 is unavailable"):
         resolve_agent_harness("developer")

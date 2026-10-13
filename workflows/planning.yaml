@@ -1,0 +1,27 @@
+name: Planning
+version: 1.0.0
+description: Converts decisions and designs into implementation-ready stories and a repository plan.
+status: active
+default_mode: change
+phases:
+  - { id: planning, status: PLANNING, label: Planning, progress: 15 }
+  - {
+      id: implementation,
+      status: IMPLEMENTATION,
+      label: Plan authoring,
+      progress: 35,
+    }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: sequential, max_parallel: 1 }
+stages:
+  - id: scope
+    agent: did:local:researcher
+    responsibility: Verify scope, constraints, dependencies, prior decisions, and repository planning conventions.
+    inputs: [request, messages, workspace]
+    outputs: [planning-context]
+  - id: story-plan
+    agent: did:local:product-planner
+    responsibility: Create stable story IDs, acceptance criteria, sequencing, risks, and Markdown under docs/plan.
+    inputs: [request, planning-context, workspace]
+    outputs: [story-backlog, implementation-plan]
+    handoff: { include: [summary, artifacts, workspace] }

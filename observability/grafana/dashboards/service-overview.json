@@ -1,0 +1,65 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "type": "stat", "title": "Scrape targets healthy", "id": 1,
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(up{job=~\"otel-collector|postgres|redis|web|prometheus|tempo|loki|grafana|alloy\"})", "legendFormat": "healthy"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 9}]}}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "Application span rate", "id": 2,
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(traces_spanmetrics_calls_total{service=~\"autodev-.*\"}[5m]))", "legendFormat": "spans/s"}]
+    },
+    {
+      "type": "stat", "title": "Application error rate", "id": 3,
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum(rate(traces_spanmetrics_calls_total{service=~\"autodev-.*\",status_code=\"STATUS_CODE_ERROR\"}[5m]))", "legendFormat": "errors/s"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "red", "value": 0.01}]}}, "overrides": []}
+    },
+    {
+      "type": "stat", "title": "Log volume", "id": 4,
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "sum(count_over_time({service_name=~\"api|worker|web|postgres|redis\"}[$__auto]))", "legendFormat": "lines"}]
+    },
+    {
+      "type": "timeseries", "title": "Span rate by service", "id": 5,
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (service) (rate(traces_spanmetrics_calls_total{service=~\"autodev-.*\"}[5m]))", "legendFormat": "{{service}}"}]
+    },
+    {
+      "type": "timeseries", "title": "Span latency p95 by service", "id": 6,
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5},
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "histogram_quantile(0.95, sum by (le, service) (rate(traces_spanmetrics_latency_bucket{service=~\"autodev-.*\"}[5m])))", "legendFormat": "{{service}}"}],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "type": "nodeGraph", "title": "Service graph", "id": 7,
+      "gridPos": {"h": 10, "w": 14, "x": 0, "y": 13},
+      "datasource": {"type": "tempo", "uid": "tempo"},
+      "targets": [{"refId": "A", "queryType": "serviceMap"}]
+    },
+    {
+      "type": "logs", "title": "Recent errors", "id": 8,
+      "gridPos": {"h": 10, "w": 10, "x": 14, "y": 13},
+      "datasource": {"type": "loki", "uid": "loki"},
+      "targets": [{"expr": "{service_name=~\"api|worker|web|postgres|redis\"} |~ \"(?i)error|fatal|panic|exception\"", "refId": "A"}],
+      "options": {"showTime": true, "showLabels": false, "wrapLogMessage": true, "sortOrder": "Descending"}
+    }
+  ],
+  "schemaVersion": 42,
+  "tags": ["autodev", "overview", "opentelemetry"],
+  "templating": {"list": []},
+  "time": {"from": "now-1h", "to": "now"},
+  "title": "AutoDev Service Overview",
+  "uid": "autodev-service-overview",
+  "version": 1
+}

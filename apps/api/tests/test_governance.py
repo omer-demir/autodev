@@ -25,6 +25,19 @@ async def test_default_deny_policy(capability: str, expected: Decision):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
+    "capability",
+    ["git.commit", "git.push", "pull_request.create"],
+)
+async def test_architect_changes_use_human_approval_gates(capability: str):
+    result = await LocalGovernanceProvider().evaluate(
+        "did:local:architect", capability, {}, {"task_id": "TASK-ADR"}
+    )
+
+    assert result.decision is Decision.REQUIRE_APPROVAL
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
     ("capability", "expected"),
     [
         ("repository.read", Decision.ALLOW),

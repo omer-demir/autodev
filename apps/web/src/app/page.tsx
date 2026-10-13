@@ -9,7 +9,7 @@ import {
 } from "lucide-react";
 import { Shell } from "@/components/shell";
 import { NewTaskDialog } from "@/components/new-task-dialog";
-import { RepositoryConnectorDialog } from "@/components/repository-connector-dialog";
+import { useLiveEvents } from "@/hooks/use-live-events";
 import { api, describeApiError } from "@/lib/api";
 import type { DashboardData, GitHubRepository, Project, RegistryDefinition, RuntimeStatus, Task } from "@/lib/types";
 
@@ -25,18 +25,18 @@ export default function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [showNew, setShowNew] = useState(false);
-  const [showRepository, setShowRepository] = useState(false);
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [runtimeChecked, setRuntimeChecked] = useState(false);
   const [runtimeError, setRuntimeError] = useState("");
   const [agents, setAgents] = useState<RegistryDefinition[]>([]);
+  const [workflows, setWorkflows] = useState<RegistryDefinition[]>([]);
   const [error, setError] = useState("");
   const loadPending = useRef<Promise<void> | null>(null);
   const runtimePending = useRef<Promise<void> | null>(null);
   const load = useCallback(() => {
     if (loadPending.current) return loadPending.current;
-    loadPending.current = Promise.all([api.dashboard(), api.projects(), api.registry("agents")])
-      .then(([dashboard, projectList, agentList]) => { setData(dashboard); setProjects(projectList); setAgents(agentList); setError(""); })
+    loadPending.current = Promise.all([api.dashboard(), api.projects(), api.registry("agents"), api.registry("workflows")])
+      .then(([dashboard, projectList, agentList, workflowList]) => { setData(dashboard); setProjects(projectList); setAgents(agentList); setWorkflows(workflowList); setError(""); })
       .catch((cause) => setError(`Dashboard data refresh failed: ${describeApiError(cause)}`))
       .finally(() => { loadPending.current = null; });
     return loadPending.current;
@@ -49,12 +49,12 @@ export default function Dashboard() {
       .finally(() => { setRuntimeChecked(true); runtimePending.current = null; });
     return runtimePending.current;
   }, []);
+  useLiveEvents(load);
   useEffect(() => {
     void load();
     void loadRuntime();
-    const dataTimer = window.setInterval(() => { if (document.visibilityState === "visible") void load(); }, 3_000);
-    const runtimeTimer = window.setInterval(() => { if (document.visibilityState === "visible") void loadRuntime(); }, 15_000);
-    return () => { window.clearInterval(dataTimer); window.clearInterval(runtimeTimer); };
+    const runtimeTimer = window.setInterval(() => { if (document.visibilityState === "visible") void loadRuntime(); }, 300_000);
+    return () => { window.clearInterval(runtimeTimer); };
   }, [load, loadRuntime]);
 
   const metrics = [
@@ -68,7 +68,7 @@ export default function Dashboard() {
     <div className="mx-auto max-w-7xl p-5 lg:p-8">
       <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div><div className="mb-2 flex items-center gap-2 text-xs font-medium text-teal-300"><Sparkles className="size-3.5" /> Local development environment</div><h1 className="text-3xl font-semibold tracking-tight">Good morning, developer.</h1><p className="mt-2 text-sm text-slate-500">Build, govern, and inspect agentic software changes.</p></div>
-        <div className="flex gap-2"><button onClick={() => setShowRepository(true)} className="flex items-center justify-center gap-2 rounded-lg border border-white/[.09] bg-white/[.03] px-4 py-2.5 text-sm text-slate-300 hover:border-teal-300/30 hover:text-white"><FolderGit2 className="size-4" /> Connect repository</button><button onClick={() => setShowNew(true)} className="flex items-center justify-center gap-2 rounded-lg bg-teal-300 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-[0_10px_35px_rgba(94,234,212,.12)] hover:bg-teal-200"><Plus className="size-4" /> New task</button></div>
+        <div className="flex gap-2"><Link href="/repositories" className="flex items-center justify-center gap-2 rounded-lg border border-white/[.09] bg-white/[.03] px-4 py-2.5 text-sm text-slate-300 hover:border-teal-300/30 hover:text-white"><FolderGit2 className="size-4" /> Manage repositories</Link><button onClick={() => setShowNew(true)} className="flex items-center justify-center gap-2 rounded-lg bg-teal-300 px-4 py-2.5 text-sm font-semibold text-slate-950 shadow-[0_10px_35px_rgba(94,234,212,.12)] hover:bg-teal-200"><Plus className="size-4" /> New task</button></div>
       </div>
       {error && <div className="mb-6 rounded-xl border border-red-400/20 bg-red-400/5 p-4 text-sm text-red-300">{error}</div>}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -76,7 +76,7 @@ export default function Dashboard() {
       </section>
       <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_320px]">
         <section id="tasks" className="overflow-hidden rounded-xl border border-white/[.07] bg-[#0d121b]/90">
-          <div className="flex items-center justify-between border-b border-white/[.07] px-5 py-4"><div><h2 className="text-sm font-semibold">Recent tasks</h2><p className="mt-1 text-xs text-slate-600">SDLC work tracked as durable tasks</p></div><span className="font-mono text-xs text-slate-600">{data?.tasks.length ?? 0} total</span></div>
+          <div className="flex items-center justify-between border-b border-white/[.07] px-5 py-4"><div><h2 className="text-sm font-semibold">Recent tasks</h2><p className="mt-1 text-xs text-slate-600">SDLC work tracked as durable tasks</p></div><span className="font-mono text-xs text-slate-600">{data?.tasks.length ?? 0} shown</span></div>
           <div className="divide-y divide-white/[.05]">{data?.tasks.map((task) => <TaskRow key={task.id} task={task} />)}{!data?.tasks.length && <p className="p-8 text-center text-sm text-slate-600">No tasks yet.</p>}</div>
         </section>
         <aside className="space-y-5">
@@ -85,26 +85,27 @@ export default function Dashboard() {
         </aside>
       </div>
     </div>
-    {showNew && <NewTaskDialog projects={projects} runtime={runtime} agents={agents} onClose={() => setShowNew(false)} />}
-    {showRepository && <RepositoryConnectorDialog runtime={runtime} onClose={() => setShowRepository(false)} onConnected={(project) => { setProjects((current) => [...current, project]); setShowRepository(false); }} />}
+    {showNew && <NewTaskDialog projects={projects} runtime={runtime} agents={agents} workflows={workflows} onClose={() => setShowNew(false)} />}
   </Shell>;
 }
 
 function TaskRow({ task }: { task: Task }) {
-  return <Link href={`/tasks/${task.id}`} className="group grid gap-3 px-5 py-4 hover:bg-white/[.025] sm:grid-cols-[110px_1fr_150px_36px] sm:items-center">
-    <div className="font-mono text-xs text-slate-500">{task.id}</div><div><h3 className="text-sm font-medium group-hover:text-teal-200">{task.title}</h3><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-600"><GitBranch className="size-3" /> {task.branch}</p></div><div><span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold tracking-wide ${statusStyle[task.status] || "border-blue-400/20 bg-blue-400/10 text-blue-300"}`}>{task.status.replaceAll("_", " ")}</span><div className="mt-2 h-1 w-full rounded-full bg-white/[.05]"><div className="h-full rounded-full bg-teal-300" style={{ width: `${task.progress}%` }} /></div></div><ArrowUpRight className="size-4 text-slate-700 group-hover:text-teal-300" /></Link>;
+  return <Link href={`/tasks/${task.id}`} className="group grid gap-3 px-5 py-4 hover:bg-white/[.025] sm:grid-cols-[64px_1fr_150px_36px] sm:items-center">
+    <div title={task.id} className="font-mono text-xs text-slate-500">{task.id.slice(-5)}</div><div><h3 className="text-sm font-medium group-hover:text-teal-200">{task.title}</h3><p className="mt-1 flex items-center gap-1.5 text-xs text-slate-600"><GitBranch className="size-3" /> {task.branch}</p></div><div><span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold tracking-wide ${statusStyle[task.status] || "border-blue-400/20 bg-blue-400/10 text-blue-300"}`}>{task.status.replaceAll("_", " ")}</span><div className="mt-2 h-1 w-full rounded-full bg-white/[.05]"><div className="h-full rounded-full bg-teal-300" style={{ width: `${task.progress}%` }} /></div></div><ArrowUpRight className="size-4 text-slate-700 group-hover:text-teal-300" /></Link>;
 }
 
 function InfoRow({ label, value, good }: { label: string; value: string; good?: boolean }) { return <div className="flex justify-between"><span className="text-slate-600">{label}</span><span className={good ? "text-emerald-300" : "text-slate-300"}>{good && <CheckCircle2 className="mr-1 inline size-3" />}{value}</span></div>; }
 
-export function LegacyNewTask({ projects, runtime, onClose }: { projects: Project[]; runtime: RuntimeStatus | null; onClose: () => void }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function LegacyNewTask({ projects, runtime, onClose }: { projects: Project[]; runtime: RuntimeStatus | null; onClose: () => void }) {
   const router = useRouter(); const [busy, setBusy] = useState(false);
   const [form, setForm] = useState({ project_id: projects[0]?.id || 1, title: "", description: "", model_name: runtime?.configured_model || "" });
   async function submit(e: React.FormEvent) { e.preventDefault(); setBusy(true); try { const task = await api.createTask(form); await api.runTask(task.id); router.push(`/tasks/${task.id}`); } finally { setBusy(false); } }
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/70 p-4 backdrop-blur-sm" onMouseDown={(e) => { if (e.currentTarget === e.target) onClose(); }}><form onSubmit={submit} className="w-full max-w-lg rounded-2xl border border-white/[.09] bg-[#101620] p-6 shadow-2xl"><div className="flex items-start justify-between"><div><p className="text-xs font-medium text-teal-300">NEW SDLC TASK</p><h2 className="mt-1 text-xl font-semibold">What should the agent build?</h2></div><button type="button" onClick={onClose} className="rounded-lg p-2 text-slate-500 hover:bg-white/[.06] hover:text-white"><X className="size-4" /></button></div><div className="mt-6 space-y-4"><label className="block text-xs text-slate-400">Repository<select required value={form.project_id} onChange={(e) => setForm({ ...form, project_id: Number(e.target.value) })} className="mt-2 w-full rounded-lg border border-white/[.09] bg-black/20 px-3 py-2.5 text-sm outline-none focus:border-teal-300/50"><option value="" disabled>Choose a connected repository</option>{projects.map((p) => <option key={p.id} value={p.id}>{p.name} · {p.source_type}</option>)}</select></label><label className="block text-xs text-slate-400">Ollama model<select value={form.model_name} onChange={(e) => setForm({ ...form, model_name: e.target.value })} className="mt-2 w-full rounded-lg border border-white/[.09] bg-black/20 px-3 py-2.5 text-sm outline-none focus:border-teal-300/50"><option value={runtime?.configured_model || ""}>{runtime?.configured_model || "Configured default"}{runtime?.models.some((m) => m.name === runtime.configured_model) ? " · installed" : " · not detected"}</option>{runtime?.models.filter((m) => m.name !== runtime.configured_model).map((model) => <option key={model.name} value={model.name}>{model.name}</option>)}</select></label><label className="block text-xs text-slate-400">Task title<input required minLength={3} value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Migrate this repository to Vue" className="mt-2 w-full rounded-lg border border-white/[.09] bg-black/20 px-3 py-2.5 text-sm outline-none placeholder:text-slate-700 focus:border-teal-300/50" /></label><label className="block text-xs text-slate-400">Requirements<textarea required minLength={3} rows={5} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} placeholder="Describe the exact migration, constraints, and acceptance criteria..." className="mt-2 w-full resize-none rounded-lg border border-white/[.09] bg-black/20 px-3 py-2.5 text-sm outline-none placeholder:text-slate-700 focus:border-teal-300/50" /></label></div>{!runtime?.ollama_reachable && <p className="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/5 p-3 text-xs text-amber-300">Ollama is not reachable. The task will fail clearly until Ollama is started and the selected model is installed.</p>}<div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-slate-400 hover:bg-white/[.05]">Cancel</button><button disabled={busy || !projects.length} className="flex items-center gap-2 rounded-lg bg-teal-300 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-teal-200"><Sparkles className="size-4" />{busy ? "Starting…" : "Create & run"}</button></div></form></div>;
 }
 
-export function LegacyRepositoryDialog({ runtime, onClose, onConnected }: { runtime: RuntimeStatus | null; onClose: () => void; onConnected: (project: Project) => void }) {
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function LegacyRepositoryDialog({ runtime, onClose, onConnected }: { runtime: RuntimeStatus | null; onClose: () => void; onConnected: (project: Project) => void }) {
   const [source, setSource] = useState<"local" | "github">("local"); const [path, setPath] = useState(""); const [owner, setOwner] = useState(""); const [repos, setRepos] = useState<GitHubRepository[]>([]); const [busy, setBusy] = useState(false); const [error, setError] = useState("");
   async function addLocal(e: React.FormEvent) { e.preventDefault(); setBusy(true); setError(""); try { const name = path.replace(/\/$/, "").split("/").at(-1) || "Local repository"; onConnected(await api.createProject({ name, repository_path: path, source_type: "local", repository_url: null, default_branch: null })); } catch (reason) { setError(String(reason)); } finally { setBusy(false); } }
   async function searchGitHub(e: React.FormEvent) { e.preventDefault(); setBusy(true); setError(""); try { setRepos((await api.githubRepositories(owner)).repositories); } catch (reason) { setError(String(reason)); } finally { setBusy(false); } }

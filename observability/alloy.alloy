@@ -1,0 +1,52 @@
+logging {
+  level  = "info"
+  format = "json"
+}
+
+discovery.docker "autodev" {
+  host             = "unix:///var/run/docker.sock"
+  refresh_interval = "5s"
+
+  filter {
+    name   = "label"
+    values = ["dev.autodev.logs=true"]
+  }
+}
+
+discovery.relabel "autodev" {
+  targets = discovery.docker.autodev.targets
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_service"]
+    target_label  = "service_name"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_name"]
+    regex         = "/(.*)"
+    replacement   = "$1"
+    target_label  = "container"
+  }
+
+  rule {
+    source_labels = ["__meta_docker_container_label_com_docker_compose_project"]
+    target_label  = "stack"
+  }
+}
+
+loki.source.docker "autodev" {
+  host             = "unix:///var/run/docker.sock"
+  targets          = discovery.relabel.autodev.output
+  forward_to       = [loki.write.default.receiver]
+  refresh_interval = "5s"
+}
+
+loki.write "default" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+
+  external_labels = {
+    cluster = "autodev",
+  }
+}

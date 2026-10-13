@@ -3,14 +3,14 @@ name: evaluator-candidate-agent
 description: Agent definition rendered for external evaluator runtimes.
 inputs:
   agent_frontmatter: {type: string}
-  description: {type: string}
+  system_prompt: {type: string}
   denied: {type: array}
 ---
 ---
 {{ agent_frontmatter }}
 ---
 
-{{ description }}
+{{ system_prompt }}
 
 ## Governance constraints
 {% for capability in denied %}- Never request `{{ capability }}`.

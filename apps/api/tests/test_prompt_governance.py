@@ -7,9 +7,10 @@ def test_developer_prompt_meets_promotion_defense_gate():
 
     evidence = evaluate_agent_prompt("developer", definition)
 
-    assert evidence["grade"] == "B"
+    assert evidence["grade"] == "A"
     assert evidence["min_grade"] == "C"
     assert evidence["blocking"] is False
-    assert evidence["defended"] == 15
+    assert evidence["defended"] == 17
     assert evidence["total"] == 17
+    assert evidence["missing_vectors"] == []
     assert len(evidence["prompt_hash"]) == 64

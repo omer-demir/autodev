@@ -2,11 +2,11 @@
 
 ## One line
 
-Autodev is the open control plane that lets engineering teams run any coding agent with deterministic policy, isolated execution, human approvals, and evidence that proves what happened.
+Autodev is the open control plane for governed multi-agent software delivery: reviewable workflows, least-privileged execution, human approvals, and evidence that proves what happened.
 
 ## 30-second pitch
 
-Coding agents can now write, test, and ship real software, but most teams still choose between productivity and control. Autodev separates the model from execution authority. Agents work in isolated Docker or Azure sandboxes; every tool call passes through versioned policy; sensitive actions require scoped approval; and every release is backed by frozen behavioral evaluations and durable evidence. Teams can bring their own agents, skills, models, and evaluators without inheriting internet permissions. It is not another coding chatbot. It is the governance and operations layer for agentic software delivery.
+Coding agents can now research, design, implement, test, and prepare real software, but most teams still choose between productivity and control. Autodev turns those roles into reviewable workflows while keeping authority outside the models. Every specialist runs with its own policy and sandbox profile; handoffs are durable artifacts; sensitive actions require scoped approval; and agent versions cannot be promoted without frozen, independently linked behavioral evidence. It is not another coding chatbot. It is the governance and operations layer for agentic software delivery.
 
 ## Two-minute pitch
 
@@ -14,9 +14,9 @@ The market is moving from code completion to autonomous software agents. That cr
 
 Autodev addresses that problem with three independent boundaries. The sandbox decides where code executes. Governance decides which semantic capability is allowed. The workflow decides when that capability is appropriate. The model can request a file write, command, commit, or push, but deterministic code makes the decision and records the result.
 
-An operator connects a repository, selects a promoted agent, and creates a change or assessment task. The agent follows an evidence-backed Research-Plan-Implement-Review loop in an isolated worktree. The workbench captures the actual diff, tests, scanner output, model and tool telemetry, policy decisions, and approval history. Commit and publication remain human-controlled.
+An operator connects a repository, chooses an executable workflow, and creates a change or assessment task. Ideation, design, planning, frontend, backend, infrastructure, testing, and delivery review can be assigned to distinct promoted agents. Named artifacts cross explicit handoffs; read-only DAG stages may run in parallel; write-capable work remains serialized. The workbench captures the actual diff, tests, scanner output, model and tool telemetry, policy decisions, stage ownership, and approval history. Commit and publication remain human-controlled.
 
-Autodev is deliberately portable. It supports GitHub Copilot, Ollama fallback, and Microsoft Foundry; Docker locally and Azure Container Apps dynamic sessions in cloud deployments; local or Microsoft Agent Governance Toolkit policy enforcement; and native, Vally, and Waza evaluation. Teams can import agents and skills from public ecosystems, but remote tool declarations are retained only as provenance until a local operator assigns policy and capabilities.
+Autodev is deliberately portable. It supports GitHub Copilot, Ollama, and Microsoft Foundry; Docker locally and Azure Container Apps dynamic sessions in cloud deployments; local or Microsoft Agent Governance Toolkit policy enforcement; and native, Vally, and Waza evaluation. Evaluation is its own governed subsystem, not synthetic product work: it uses isolated fixture workspaces, an explicitly selected evaluator provider/model (Ollama `gemma4:e2b` by default), immutable datasets, and cryptographically linked results. Teams can import agents and skills from public ecosystems, but remote declarations never grant local authority.
 
 The result is a platform engineering layer for organizations that want agent productivity without surrendering control, evidence, deployment choice, or model choice.
 
@@ -32,7 +32,7 @@ Prompts are guidance, not controls. Autodev intercepts tool calls in determinist
 
 ### Platform engineer
 
-Bring models, agents, skills, MCP tools, sandboxes, and evaluators behind stable provider boundaries. Manage them as versioned definitions and expose the same durable sessions through UI, REST, CLI, and MCP.
+Bring models, specialist agents, skills, MCP tools, workflows, sandboxes, and evaluators behind stable provider boundaries. Manage them as versioned definitions while keeping tasks, resumable sessions, execution attempts, and evaluation runs semantically separate.
 
 ### Developer
 
@@ -54,6 +54,8 @@ For engineering organizations adopting autonomous coding agents, Autodev is a go
 - Every tool call resolves to a semantic capability before execution.
 - Docker and Azure sandboxes share one governed runtime contract.
 - Imported agents and skills cannot grant themselves authority.
-- Promotion requires frozen behavioral evidence from native, Vally, and Waza runs.
+- Executable workflows assign one accountable agent per stage and persist named handoffs.
+- Promotion requires a completed result cryptographically linked to a matching frozen dataset, with native, Vally, and Waza evidence.
+- Evaluation runs never manufacture product tasks or sessions.
 - Commit, push, and pull-request publication remain scoped approval boundaries.
 - Durable events and artifacts make model claims independently inspectable.

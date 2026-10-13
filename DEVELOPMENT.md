@@ -27,18 +27,37 @@ The default `.env.example` uses Ollama for native development. Change `WORKBENCH
 
 ## Start locally
 
-Run both hot-reload servers:
+Run the native API, web server, and durable worker with Docker-backed PostgreSQL
+and Redis:
 
 ```bash
 make dev
 ```
+
+`make dev` stops Compose `api`, `web`, and `worker` containers to avoid port and
+queue-consumer conflicts, starts PostgreSQL, Redis, the OpenTelemetry Collector,
+Tempo, Prometheus, and the datastore exporters, waits for them to become ready,
+and then runs the three native processes. In a Docker-outside-of-Docker dev
+container, it also attaches the dev container to the Compose `control` network,
+uses `otel-collector:4318` for native OTLP export, and requires `postgres` and
+`redis` as the database hosts in `.env`. When running directly on the Docker
+host, retain the `127.0.0.1` hosts from `.env.example`. PostgreSQL stores tasks
+and execution leases; Redis Streams distributes realtime invalidations. The API
+uses polling for its small source tree and the web server uses Webpack. The
+native worker does not hot reload; restart `make dev` after changing worker-only
+code.
 
 Or run them independently for focused debugging:
 
 ```bash
 npm run dev:api
 npm run dev:web
+PYTHONPATH=apps/api .venv/bin/python -m app.worker
 ```
+
+The standalone worker requires `WORKBENCH_EXECUTION_DISPATCH=durable`. The API
+and worker must use the same `WORKBENCH_DATABASE_URL`; Redis is shared event
+transport, not the execution queue.
 
 Open:
 
@@ -57,7 +76,15 @@ docker compose ps
 docker compose logs -f api web
 ```
 
-Compose starts Web, API, OpenTelemetry Collector, Tempo, Prometheus, and Grafana. It does not start Ollama; the API reaches host Ollama through `host.docker.internal:11434`.
+Compose starts Web, API, worker, PostgreSQL, Redis, Azurite, OpenTelemetry
+Collector, Tempo, Prometheus, Loki, Alloy, Grafana, and PostgreSQL/Redis exporters. It does not start Ollama; the API
+reaches host Ollama through `host.docker.internal:11434`.
+
+Azurite is the local Azure Blob-compatible store used by the Compose profile for durable evidence
+and required workspace snapshots. It avoids using a cloud storage account while exercising the
+same provider contract. It is not used for PostgreSQL data or Redis queues. A filesystem-only
+profile can remove Azurite only after changing both `WORKBENCH_EVIDENCE_PROVIDER` and
+`WORKBENCH_WORKSPACE_SNAPSHOT_PROVIDER` and preserving the required snapshot behavior.
 
 Stop without deleting durable data:
 
@@ -80,9 +107,11 @@ Autodev uses **embedded AgentMesh libraries**, not a separate mesh service:
 3. Its Ed25519 private key is stored under `WORKBENCH_AGENT_IDENTITY_DIR`.
 4. A signed marketplace manifest binds the DID to the declared capabilities.
 5. Task creation verifies identity status, capabilities, and manifest signature.
-6. The workflow supervisor creates a one-participant Agent Hypervisor session.
+6. The selected runtime-supervision adapter creates a one-participant supervised session.
 
 Therefore `make dev` or `docker compose up` starts the Autodev mesh integration. Compose stores identity keys in `/data/agentmesh` on the `workbench-data` volume so they survive container recreation.
+
+The default adapter is Microsoft Agent Hypervisor. Select the portable provider with `WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER=local`, or install a third-party entry-point adapter. See [runtime supervision adapters](docs/runtime-supervision-adapters.md) for the contract, capability discovery, direct import configuration, elevation API, and evidence format.
 
 Inspect the embedded mesh:
 
@@ -99,7 +128,16 @@ Microsoft's standalone AgentMesh relay, registry, proxy, trust handshake, reward
 
 ### GitHub Copilot
 
-For native development, authenticate the Copilot CLI or export `COPILOT_GITHUB_TOKEN`. Compose persists Copilot state under the `workbench-data` volume.
+For native development, authenticate the Copilot CLI or export `COPILOT_GITHUB_TOKEN`.
+`make dev` and all three evaluation adapters reuse `WORKBENCH_COPILOT_HOME`, which
+defaults to the dev container's `~/.copilot`. Vally explicitly opts into that
+home instead of its default empty per-run home.
+
+Compose cannot safely bind the dev container's private home through an external
+Docker daemon. Set `COPILOT_GITHUB_TOKEN` in `.env`, or authenticate the Compose
+CLI once with `docker compose run --rm api copilot login`. Compose sets both
+`COPILOT_HOME` and `WORKBENCH_COPILOT_HOME` to `/data/copilot`, persisted by the
+`workbench-data` volume and shared by the API, worker, Vally, and Waza.
 
 For a strict Copilot check with no fallback:
 
@@ -146,6 +184,13 @@ docker compose logs -f api
 docker compose exec api python -c "from hypervisor import Hypervisor; print(Hypervisor)"
 ```
 
+Inspect the selected runtime supervisor and its declared controls:
+
+```bash
+docker compose exec api python -c \
+  "from app.runtime_supervision import get_runtime_supervisor_provider as get; p=get(); print(p.provider_id, p.provider_version, p.capabilities)"
+```
+
 Prompts, source, raw commands, credentials, and tool output are deliberately excluded from ordinary telemetry. Enable the task's explicit verbose model log only when sensitive content is acceptable in local evidence.
 
 ### Web
@@ -175,8 +220,9 @@ Do not edit the connected source checkout when debugging a task. Reproduce chang
 - Durable workflow events: task **Timeline** tab.
 - Sensitive provider transcript: task **Model log** when enabled.
 - Metrics: <http://localhost:9090>.
-- Traces and dashboards: <http://localhost:3001>.
+- Metrics, traces, logs, service maps, and provisioned dashboards: <http://localhost:3001>.
 - Tempo API: <http://localhost:3200>.
+- Loki API: <http://localhost:3100>.
 
 ## Test and validate
 
@@ -199,6 +245,7 @@ Run focused governance checks:
 ```bash
 .venv/bin/pytest -q \
   apps/api/tests/test_governance.py \
+  apps/api/tests/test_runtime_supervision.py \
   apps/api/tests/test_workflow_supervisor.py \
   apps/api/tests/test_agent_identity.py \
   apps/api/tests/test_behavioral_evaluation.py

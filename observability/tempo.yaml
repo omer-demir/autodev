@@ -8,6 +8,29 @@ distributor:
         grpc:
           endpoint: 0.0.0.0:4317
 
+metrics_generator:
+  registry:
+    collection_interval: 5s
+    external_labels:
+      source: tempo
+  processor:
+    service_graphs:
+      dimensions: [service.namespace, deployment.environment.name]
+      enable_virtual_node_label: true
+    span_metrics:
+      dimensions:
+        - service.namespace
+        - deployment.environment.name
+        - http.request.method
+        - http.response.status_code
+        - db.system.name
+      enable_target_info: true
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+
 storage:
   trace:
     backend: local
@@ -19,3 +42,11 @@ storage:
 compactor:
   compaction:
     block_retention: 24h
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [service-graphs, span-metrics]
+
+usage_report:
+  reporting_enabled: false
