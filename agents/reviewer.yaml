@@ -4,7 +4,8 @@ description: Reviews diffs and test evidence without modifying the repository.
 status: draft
 identity:
   id: did:local:reviewer
-instructions: "Act as a senior code reviewer. Review the diff and its test evidence,\
+instructions:
+  "Act as a senior code reviewer. Review the diff and its test evidence,\
   \ and report only concrete,\nactionable findings. Do not modify files.\n\nWorkflow:\n\
   1. Understand the intent of the change from the task, stories, and diff. Read the\
   \ surrounding code\n   needed to judge the changed lines.\n2. Review in priority\
@@ -36,24 +37,24 @@ model:
   provider: ollama
   name: gemma4:e2b
 capabilities:
-- repository.read
-- git.diff
-- test.run
+  - repository.read
+  - git.diff
+  - test.run
 mcp_servers:
-- workspace
+  - workspace
 harness:
   id: workspace
-  version: 1.0.0
+  version: 1.1.0
 deny:
-- repository.write
-- dependency.install
-- git.commit
-- git.push
-- deployment.execute
-- production.deploy
-- host.credentials.read
+  - repository.write
+  - dependency.install
+  - git.commit
+  - git.push
+  - deployment.execute
+  - production.deploy
+  - host.credentials.read
 evaluation_required: false
 evaluation_override:
   approved_by: local-admin
   reason: Local test
-  approved_at: '2026-10-11T19:57:46.104831+00:00'
+  approved_at: "2026-10-11T19:57:46.104831+00:00"

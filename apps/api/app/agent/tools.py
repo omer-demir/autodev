@@ -35,11 +35,11 @@ async def search_text(
 
 
 @tool(approval_mode="never_require")
-async def read_file(
+async def read_repository_file(
     path: str, offset: int = 0, limit: int = 6000, *, ctx: FunctionInvocationContext,
 ) -> str:
     """Read a bounded UTF-8 text chunk; use next_offset to continue large files."""
-    return json.dumps(await runtime_from_context(ctx).execute("read_file", {
+    return json.dumps(await runtime_from_context(ctx).execute("read_repository_file", {
         "path": path, "offset": offset, "limit": limit,
     }), ensure_ascii=False)
 
@@ -71,5 +71,5 @@ async def run_command(arguments: list[str], *, ctx: FunctionInvocationContext) -
 
 
 WORKBENCH_TOOLS = [
-    list_files, search_text, read_file, write_file, delete_file, run_command,
+    list_files, search_text, read_repository_file, write_file, delete_file, run_command,
 ]

@@ -42,18 +42,18 @@ flowchart LR
 
 ## Current contents
 
-`workspace` version `1.0.0` defines six tools:
+`workspace` version `1.1.0` defines six tools:
 
-| Tool          | Binding               | Implementation shape                                |
-| ------------- | --------------------- | --------------------------------------------------- |
-| `list_files`  | `repository.read`     | Bounded file listing with exclusions and pagination |
-| `search_text` | `repository.read`     | Bounded literal repository search                   |
-| `read_file`   | `repository.read`     | Path-safe, bounded UTF-8 chunk read                 |
-| `write_file`  | `repository.write`    | Path-safe UTF-8 replacement                         |
-| `delete_file` | `repository.write`    | Path-safe single-file deletion                      |
-| `run_command` | `command-v1` resolver | Governed argument-vector command in a sandbox       |
+| Tool                   | Binding               | Implementation shape                                |
+| ---------------------- | --------------------- | --------------------------------------------------- |
+| `list_files`           | `repository.read`     | Bounded file listing with exclusions and pagination |
+| `search_text`          | `repository.read`     | Bounded literal repository search                   |
+| `read_repository_file` | `repository.read`     | Path-safe, bounded UTF-8 chunk read                 |
+| `write_file`           | `repository.write`    | Path-safe UTF-8 replacement                         |
+| `delete_file`          | `repository.write`    | Path-safe single-file deletion                      |
+| `run_command`          | `command-v1` resolver | Governed argument-vector command in a sandbox       |
 
-Each tool has JSON Schema input. The harness pins capability catalog `governance` version `1.0.0`.
+Each tool has JSON Schema input. The harness pins capability catalog `governance` version `1.0.0`. The file reader deliberately avoids the name `read_file`, which collides with a Copilot CLI built-in that has a different argument contract.
 
 ## What belongs in a harness
 
@@ -105,4 +105,4 @@ An agent should adopt the new exact versions through its declaration and then pa
 
 The harness is provider-neutral. Copilot, Ollama, Foundry, and external evaluation adapters may project schemas differently, but they must preserve the same names, argument contract, and capability bindings. Provider convenience tools must not bypass the resolved harness.
 
-MCP may expose operations with different protocol-level names, such as `workspace.read_file`, but those calls are translated into the same internal harness tool and execution queue. The external protocol is not a second authority model.
+MCP may expose operations with different protocol-level names, such as `workspace.read_file`, but those calls are translated into `read_repository_file` in the same internal harness and execution queue. The external protocol is not a second authority model.

@@ -1,3 +1,4 @@
+from copy import deepcopy
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -239,6 +240,7 @@ async def test_executable_workflow_hands_off_artifacts_and_uses_stage_sandbox():
         },
     }
     saved_artifacts: dict[str, dict] = {}
+    workflow_run_history: list[dict] = []
     runtime_calls: list[dict] = []
 
     async def run_agent(_runtime, **kwargs):
@@ -246,7 +248,9 @@ async def test_executable_workflow_hands_off_artifacts_and_uses_stage_sandbox():
         return f"completed {kwargs['stage_context']['stage_id']}"
 
     async def save_artifact(_session, _task_id, kind, content):
-        saved_artifacts[kind] = dict(content)
+        saved_artifacts[kind] = deepcopy(content)
+        if kind == "workflow-run":
+            workflow_run_history.append(deepcopy(content))
 
     with (
         patch("app.workflow.get_definition", side_effect=lambda kind, identifier: {
@@ -294,3 +298,12 @@ async def test_executable_workflow_hands_off_artifacts_and_uses_stage_sandbox():
     assert create.await_args.args[0]["network_mode"] == "bridge"
     kill.assert_awaited_once_with("implementation-container")
     assert saved_artifacts["workflow-run"]["status"] == "completed"
+    assert any(
+        state["stages"].get("research", {}).get("status") == "running"
+        and state["stages"]["research"]["agent_id"] == "did:local:researcher"
+        and state["stages"]["research"]["responsibility"] == "Research."
+        for state in workflow_run_history
+    )
+    assert saved_artifacts["workflow-run"]["stages"]["implement"]["status"] == (
+        "completed"
+    )

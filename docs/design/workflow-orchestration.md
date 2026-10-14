@@ -69,6 +69,8 @@ Parallel stages are permitted only when every assigned agent lacks write capabil
 
 This is intentionally conservative. Read-only models may inspect the same workspace concurrently. Writers remain serialized because the current workspace is shared and Autodev does not yet provide stage branches, transactional filesystem locks, or deterministic merge/conflict handling.
 
+Backend, UI, and infrastructure implementation can instead run concurrently as separate tasks by selecting the dedicated [backend implementation](../../workflows/backend-implementation.yaml), [UI implementation](../../workflows/ui-implementation.yaml), and [infrastructure implementation](../../workflows/infrastructure-implementation.yaml) workflows. Each task receives its own worktree and feature branch, so write-heavy specialists do not race over one filesystem. Their pull requests remain independent and may still require sequencing or conflict resolution when they change shared contracts. Durable deployments need multiple workers—for example `make platform-scale`—to execute queued tasks simultaneously; embedded development dispatch runs distinct tasks concurrently.
+
 ## Stage execution
 
 For each stage, the controller:
@@ -132,7 +134,7 @@ Use these rules for a workflow that remains understandable under failure:
 7. Prefer several bounded workflows over one graph with many conditional branches.
 8. Version any change to role authority, graph topology, artifact contract, or harness dependency.
 
-The active examples are [ideation](../../workflows/ideation.yaml), [design](../../workflows/design.yaml), [planning](../../workflows/planning.yaml), and [implementation](../../workflows/implementation.yaml).
+The active examples are [ideation](../../workflows/ideation.yaml), [design](../../workflows/design.yaml), [planning](../../workflows/planning.yaml), [combined implementation](../../workflows/implementation.yaml), [backend implementation](../../workflows/backend-implementation.yaml), [UI implementation](../../workflows/ui-implementation.yaml), and [infrastructure implementation](../../workflows/infrastructure-implementation.yaml).
 
 ## Current limits
 

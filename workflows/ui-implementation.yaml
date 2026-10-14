@@ -1,0 +1,39 @@
+name: UI Implementation
+description: Implements and verifies web UI story work in an isolated task workspace so it can run alongside other discipline workflows.
+version: 1.0.0
+status: active
+default_mode: change
+phases:
+  - { id: planning, status: PLANNING, label: UI scope, progress: 15 }
+  - {
+      id: implementation,
+      status: IMPLEMENTATION,
+      label: UI implementation,
+      progress: 35,
+    }
+  - { id: testing, status: TESTING, label: UI verification, progress: 65 }
+  - { id: review, status: REVIEW, label: UI review, progress: 88 }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: sequential, max_parallel: 1 }
+stages:
+  - id: ui-implementation
+    agent: did:local:frontend-implementer
+    responsibility: Resolve the applicable story IDs and implement web UI behavior, client state, accessibility, responsive presentation, and focused tests without changing backend or infrastructure scope.
+    inputs: [request, messages, workspace]
+    outputs: [ui-result]
+  - id: ui-verification
+    agent: did:local:tester
+    responsibility: Verify the UI acceptance criteria, interaction states, accessibility behavior, type safety, lint, tests, and production build evidence.
+    inputs: [request, ui-result, workspace]
+    outputs: [ui-verification]
+  - id: ui-improvement
+    agent: did:local:frontend-implementer
+    responsibility: Apply evidence-backed UI fixes from verification while preserving the requested story scope and existing design system.
+    inputs: [request, ui-result, ui-verification, workspace]
+    outputs: [ui-improvement]
+  - id: ui-review
+    agent: did:local:delivery-reviewer
+    responsibility: Review the final UI diff, verification evidence, accessibility, acceptance criteria, and pull-request readiness.
+    inputs: [request, ui-result, ui-verification, ui-improvement, workspace]
+    outputs: [ui-review]
+    handoff: { include: [summary, artifacts, workspace] }

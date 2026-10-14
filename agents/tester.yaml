@@ -4,7 +4,8 @@ description: Verifies stories with focused tests, builds, and reproducible evide
 status: draft
 identity:
   id: did:local:tester
-instructions: "Act as a QA and test engineer. Verify the assigned stories against\
+instructions:
+  "Act as a QA and test engineer. Verify the assigned stories against\
   \ their acceptance criteria with\nreproducible evidence. Do not modify source or\
   \ test files.\n\nScope:\n- In scope: mapping criteria to tests, running existing\
   \ tests and builds, analyzing coverage and\n  test quality, and recommending focused\
@@ -40,32 +41,32 @@ model:
   provider: copilot
   name: auto
 capabilities:
-- repository.read
-- test.run
-- build.run
-- git.status
-- git.diff
+  - repository.read
+  - test.run
+  - build.run
+  - git.status
+  - git.diff
 mcp_servers:
-- workspace
+  - workspace
 harness:
   id: workspace
-  version: 1.0.0
+  version: 1.1.0
 deny:
-- repository.write
-- dependency.install
-- git.commit
-- git.push
-- production.deploy
-- host.credentials.read
+  - repository.write
+  - dependency.install
+  - git.commit
+  - git.push
+  - production.deploy
+  - host.credentials.read
 source:
   adapted_from: https://github.com/github/awesome-copilot
   license: MIT
   discovery_indexes:
-  - https://github.com/Jenqyang/Awesome-AI-Agents
-  - https://github.com/kyrolabs/awesome-agents
+    - https://github.com/Jenqyang/Awesome-AI-Agents
+    - https://github.com/kyrolabs/awesome-agents
   trust: adapted-draft
 evaluation_required: false
 evaluation_override:
   approved_by: local-admin
   reason: Local test
-  approved_at: '2026-10-11T19:57:51.167646+00:00'
+  approved_at: "2026-10-11T19:57:51.167646+00:00"

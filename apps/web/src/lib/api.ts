@@ -1,4 +1,4 @@
-import type { AgentTelemetry, AuthUser, BehavioralEvaluationReadiness, Connector, ConnectorAccount, DashboardData, EvaluationArtifacts, EvaluationDataset, EvaluationDatasetPage, EvaluationEvent, EvaluationModelCatalog, EvaluationRun, EvidenceSummary, GatewayStatus, GitHubRepository, GovernanceOverview, OrganizationMember, Project, RegistryDefinition, RuntimeCapabilities, RuntimeStatus, Sandbox, SecurityOverview, SessionHistory, SessionSummary, Task, TaskDetail, TaskObservability, TaskPage } from "./types";
+import type { AgentTelemetry, AuthUser, BehavioralEvaluationReadiness, Connector, ConnectorAccount, DashboardData, EvaluationArtifacts, EvaluationDataset, EvaluationDatasetPage, EvaluationEvent, EvaluationModelCatalog, EvaluationRun, EvidenceSummary, GatewayStatus, GitHubRepository, GovernanceOverview, OrganizationMember, Project, RegistryDefinition, RuntimeCapabilities, RuntimeStatus, Sandbox, SecurityOverview, SessionHistory, SessionSummary, Task, TaskChangeDiff, TaskChangesDirectory, TaskDetail, TaskObservability, TaskPage } from "./types";
 
 // Native development stays same-origin through the Next.js /api rewrite. This avoids
 // remote-workspace localhost forwarding and browser CORS/connection failure modes.
@@ -113,6 +113,16 @@ export const api = {
   publishTask: (id: string, branch: string, create_pull_request: boolean) =>
     call<{ status: string; approval_id: string; actions: string[] }>(`/api/tasks/${encodeURIComponent(id)}/publish`, { method: "POST", body: JSON.stringify({ branch, create_pull_request }) }),
   task: (id: string) => call<TaskDetail>(`/api/tasks/${id}`),
+  taskChanges: (id: string, path = "") => {
+    const params = new URLSearchParams();
+    if (path) params.set("path", path);
+    const query = params.size ? `?${params.toString()}` : "";
+    return call<TaskChangesDirectory>(`/api/tasks/${encodeURIComponent(id)}/changes${query}`);
+  },
+  taskChangeDiff: (id: string, path: string) => {
+    const params = new URLSearchParams({ path });
+    return call<TaskChangeDiff>(`/api/tasks/${encodeURIComponent(id)}/changes/diff?${params.toString()}`);
+  },
   taskObservability: (id: string) => call<TaskObservability>(`/api/tasks/${id}/observability`),
   resolveModelRecovery: (id: string, action: "retry" | "change_model" | "fallback" | "cancel", model?: string) =>
     call(`/api/tasks/${id}/model-recovery`, { method: "POST", body: JSON.stringify({ action, model }) }),

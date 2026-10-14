@@ -57,11 +57,38 @@ export interface EvidenceSummary {
   task_id: string; title: string; status: TaskStatus; updated_at: string; artifact_kinds: string[];
 }
 export interface Message { id: number; task_id: string; role: "user" | "assistant"; content: string; created_at: string }
+export interface WorkflowPhase {
+  id: string; status: TaskStatus; label: string; progress: number | "inherit";
+}
+export interface WorkflowStage {
+  id: string; agent: string; responsibility: string; inputs?: string[]; outputs: string[];
+}
+export interface WorkflowDefinition {
+  name: string; version: string; phases: WorkflowPhase[]; stages?: WorkflowStage[];
+}
+export interface WorkflowStageRun {
+  status: "running" | "completed" | "failed"; agent_id: string;
+  responsibility?: string; inputs?: string[]; outputs?: string[]; error?: string;
+}
+export interface WorkflowRun {
+  workflow_id: string; workflow_version: string; status: "running" | "completed" | "failed";
+  stages: Record<string, WorkflowStageRun>; error?: string;
+}
+export interface ChangeTreeEntry {
+  name: string; path: string; kind: "folder" | "file"; status?: string;
+  file_count: number; additions: number; deletions: number;
+}
+export interface TaskChangesDirectory {
+  path: string; entries: ChangeTreeEntry[]; file_count: number; revision: string;
+}
+export interface TaskChangeDiff { path: string; diff: string; revision: string }
 export interface Artifacts {
   plan?: { requirements: string[]; steps: string[]; acceptance: string[] };
-  changes?: { files: { path: string; status: string; additions: number; deletions: number }[]; diff: string };
+  changes?: { file_count: number; revision: string };
   tests?: { passed: number; failed: number; skipped: number; duration: number; output: string; commands?: string[][] };
   security?: { high: number; medium: number; low: number; scanners: Record<string, string> };
+  "workflow-definition"?: { workflow_id: string; workflow_version: string; definition: WorkflowDefinition };
+  "workflow-run"?: WorkflowRun;
 }
 export interface TaskDetail {
   task: Task; project: Project; events: TimelineEvent[]; artifacts: Artifacts;

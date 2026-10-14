@@ -3,6 +3,8 @@ import html
 import hashlib
 import json
 import logging
+import re
+import shlex
 import shutil
 import secrets
 import subprocess
@@ -118,7 +120,7 @@ from .workflow_orchestration import workflow_owner_agent
 from .workspace_snapshots import workspace_snapshots
 
 
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("autodev.api")
 
 
 def _scoped_task(
@@ -136,6 +138,109 @@ def _scoped_sandbox(
     if sandbox is None or _scoped_task(session, sandbox.task_id, principal) is None:
         return None
     return sandbox
+
+
+def _changes_artifact(session: Session, task_id: str) -> dict | None:
+    artifact = session.exec(select(TaskArtifact).where(
+        TaskArtifact.task_id == task_id,
+        TaskArtifact.kind == "changes",
+    )).first()
+    return dict(artifact.content) if artifact else None
+
+
+def _changes_revision(changes: dict) -> str:
+    configured = changes.get("revision")
+    if isinstance(configured, str) and configured:
+        return configured
+    payload = json.dumps(
+        changes.get("files", []), sort_keys=True, separators=(",", ":")
+    )
+    payload += f":{len(str(changes.get('diff') or ''))}"
+    return hashlib.sha256(payload.encode()).hexdigest()[:16]
+
+
+def _changes_summary(changes: dict) -> dict:
+    files = changes.get("files")
+    return {
+        "file_count": len(files) if isinstance(files, list) else 0,
+        "revision": _changes_revision(changes),
+    }
+
+
+def _change_directory_path(value: str) -> str:
+    normalized = value.strip().strip("/")
+    if not normalized:
+        return ""
+    parts = normalized.split("/")
+    if any(part in {"", ".", ".."} for part in parts):
+        raise HTTPException(400, "Change directory path is invalid")
+    return "/".join(parts)
+
+
+def _change_entries(changes: dict, directory: str) -> list[dict]:
+    prefix = f"{directory}/" if directory else ""
+    entries: dict[str, dict] = {}
+    files = changes.get("files")
+    for item in files if isinstance(files, list) else []:
+        file_path = str(item.get("path") or "")
+        if not file_path.startswith(prefix):
+            continue
+        remainder = file_path[len(prefix):]
+        if not remainder:
+            continue
+        name, separator, _ = remainder.partition("/")
+        child_path = f"{prefix}{name}"
+        added = int(item.get("additions") or 0)
+        deleted = int(item.get("deletions") or 0)
+        current = entries.get(name)
+        if separator:
+            if current is None:
+                current = {
+                    "name": name,
+                    "path": child_path,
+                    "kind": "folder",
+                    "file_count": 0,
+                    "additions": 0,
+                    "deletions": 0,
+                }
+                entries[name] = current
+            current["file_count"] += 1
+            current["additions"] += added
+            current["deletions"] += deleted
+        else:
+            entries[name] = {
+                "name": name,
+                "path": file_path,
+                "kind": "file",
+                "status": str(item.get("status") or "modified"),
+                "file_count": 1,
+                "additions": added,
+                "deletions": deleted,
+            }
+    return sorted(
+        entries.values(),
+        key=lambda item: (item["kind"] != "folder", item["name"].casefold()),
+    )
+
+
+def _change_file_diff(changes: dict, path: str) -> str:
+    patch = str(changes.get("diff") or "")
+    sections = re.split(r"(?=^diff --git )", patch, flags=re.MULTILINE)
+    for section in sections:
+        header, _, _ = section.partition("\n")
+        if not header.startswith("diff --git "):
+            continue
+        try:
+            candidates = shlex.split(header.removeprefix("diff --git "))
+        except ValueError:
+            candidates = []
+        normalized = {
+            candidate[2:] if candidate.startswith(("a/", "b/")) else candidate
+            for candidate in candidates
+        }
+        if path in normalized:
+            return section
+    return ""
 
 
 def _connector_payload(connector: Connector) -> dict:
@@ -825,11 +930,67 @@ def get_task(
         select(Message).where(Message.task_id ==
                               task_id).order_by(Message.created_at)
     ).all()
+    artifact_payload = {}
+    for item in artifacts:
+        artifact_payload[item.kind] = (
+            _changes_summary(item.content)
+            if item.kind == "changes"
+            else item.content
+        )
     return {
         "task": task, "project": project, "events": events,
-        "artifacts": {item.kind: item.content for item in artifacts},
+        "artifacts": artifact_payload,
         "sandbox": sandbox, "approval": approval, "messages": messages,
         "model_recovery": model_recovery_broker.get(task_id),
+    }
+
+
+@app.get("/api/tasks/{task_id}/changes")
+def task_changes(
+    task_id: str,
+    path: str = Query(default="", max_length=1_000),
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("read")),
+) -> dict:
+    if _scoped_task(session, task_id, principal) is None:
+        raise HTTPException(404, "Task not found")
+    changes = _changes_artifact(session, task_id)
+    if changes is None:
+        raise HTTPException(404, "Task changes are not available")
+    directory = _change_directory_path(path)
+    entries = _change_entries(changes, directory)
+    if directory and not entries:
+        raise HTTPException(404, "Changed directory not found")
+    return {
+        "path": directory,
+        "entries": entries,
+        **_changes_summary(changes),
+    }
+
+
+@app.get("/api/tasks/{task_id}/changes/diff")
+def task_change_diff(
+    task_id: str,
+    path: str = Query(min_length=1, max_length=2_000),
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("read")),
+) -> dict:
+    if _scoped_task(session, task_id, principal) is None:
+        raise HTTPException(404, "Task not found")
+    changes = _changes_artifact(session, task_id)
+    if changes is None:
+        raise HTTPException(404, "Task changes are not available")
+    files = changes.get("files")
+    known_paths = {
+        str(item.get("path") or "")
+        for item in (files if isinstance(files, list) else [])
+    }
+    if path not in known_paths:
+        raise HTTPException(404, "Changed file not found")
+    return {
+        "path": path,
+        "diff": _change_file_diff(changes, path),
+        "revision": _changes_revision(changes),
     }
 
 

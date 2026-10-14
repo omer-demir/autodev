@@ -138,7 +138,7 @@ def test_taskless_response_detection():
 def test_copilot_permission_handler_only_dispatches_workbench_custom_tools():
     allowed = _copilot_permission_handler(
         PermissionRequestCustomTool(
-            tool_description="Read a repository file", tool_name="read_file"
+            tool_description="Read a repository file", tool_name="read_repository_file"
         ),
         {},
     )
@@ -201,7 +201,7 @@ async def test_tool_runtime_enforces_governance_and_records_events(tmp_path):
         container_id="unused", callback=callback, sandbox=SimpleNamespace(),
         governance=FakeGovernance(), supervisor=FakeSupervisor(),
     )
-    result = await runtime.execute("read_file", {"path": "README.md"})
+    result = await runtime.execute("read_repository_file", {"path": "README.md"})
 
     assert result["content"] == "hello"
     assert [event[0] for event in events] == [
@@ -211,8 +211,10 @@ async def test_tool_runtime_enforces_governance_and_records_events(tmp_path):
 
 @pytest.mark.asyncio
 async def test_tool_runtime_denies_before_file_write(tmp_path):
-    async def callback(*args):
-        return None
+    events = []
+
+    async def callback(event_type, title, detail, severity, data):
+        events.append((event_type, title, detail, data))
 
     runtime = ToolRuntime(
         task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
@@ -223,6 +225,15 @@ async def test_tool_runtime_denies_before_file_write(tmp_path):
     with pytest.raises(PermissionError, match="test decision"):
         await runtime.execute("write_file", {"path": "denied.txt", "content": "no"})
     assert not (tmp_path / "denied.txt").exists()
+    denied = next(event for event in events if event[0] == "tool.denied")
+    assert denied[3] == {
+        "tool": "write_file",
+        "tool_description": "Create or replace a UTF-8 repository file.",
+        "request_summary": "Path: denied.txt · proposed content: 2 characters",
+        "capability": "repository.write",
+        "decision": Decision.DENY,
+        "policy": "test-policy",
+    }
 
 
 @pytest.mark.asyncio
@@ -263,8 +274,15 @@ async def test_tool_runtime_records_unclassified_command_denial(tmp_path):
 
     assert events[-1] == (
         "tool.denied",
-        {"capability": None, "decision": "DENY",
-         "arguments": {"arguments": ["bash", "-lc", "cat README.md"]}},
+        {
+            "tool": "run_command",
+            "tool_description": (
+                "Run a governed argument-vector test, build, dependency, or Git command."
+            ),
+            "request_summary": "Command: bash -lc 'cat README.md'",
+            "capability": None,
+            "decision": "DENY",
+        },
     )
 
 
@@ -281,10 +299,10 @@ async def test_tool_runtime_uses_explicit_policy_invocation_budget(tmp_path):
         governance=FakeGovernance(), supervisor=FakeSupervisor(), max_tool_invocations=2,
     )
 
-    await runtime.execute("read_file", {"path": "README.md"})
-    await runtime.execute("read_file", {"path": "README.md"})
+    await runtime.execute("read_repository_file", {"path": "README.md"})
+    await runtime.execute("read_repository_file", {"path": "README.md"})
     with pytest.raises(RuntimeError, match="policy limit of 2"):
-        await runtime.execute("read_file", {"path": "README.md"})
+        await runtime.execute("read_repository_file", {"path": "README.md"})
 
 
 class FakeAgent:
@@ -323,6 +341,7 @@ class FakeAgent:
 def _runtime_settings(**overrides):
     values = {
         "model_provider": "copilot",
+        "model_name": "auto",
         "model_fallback_provider": "ollama",
         "model_fallback_name": "local-model",
         "model_request_timeout_seconds": 300,
@@ -360,7 +379,7 @@ async def test_agent_framework_session_receives_steering_and_runtime_context(tmp
 
     result = await runtime.run(
         task_id="TASK-STEER", title="Test steering", description="Inspect only",
-        agent_id="did:local:developer", model_name="auto", task_mode="assessment",
+        agent_id="did:local:developer", model_name=None, task_mode="assessment",
         verbose_logging=False, workspace=tmp_path, container_id="unused",
         callback=callback, steering_provider=steering,
     )
@@ -372,6 +391,15 @@ async def test_agent_framework_session_receives_steering_and_runtime_context(tmp
     assert tool_runtime.max_tool_invocations == 500
     assert tool_runtime.max_shell_invocations == 100
     assert fake.closed is True
+    selected = [event for event in events if event[0] == "model.selected"]
+    assert selected[-1][2] == {
+        "provider": "copilot",
+        "model": "auto",
+        "selection_source": "agent_preference",
+        "agent_provider": "copilot",
+        "agent_model": "auto",
+        "agent_preference_available": True,
+    }
     completed = [event for event in events if event[0] == "model.completed"]
     assert completed[-1][2]["usage"]["input_tokens"] == 4
 
@@ -429,5 +457,27 @@ def test_copilot_agent_uses_workbench_timeout_and_disables_file_hooks(tmp_path):
     assert options["timeout"] == 1800.0
     assert options["enable_file_hooks"] is False
     assert options["working_directory"] == str(tmp_path)
+    assert "custom:read_repository_file" in options["available_tools"]
+    assert "custom:read_file" not in options["available_tools"]
     assert "model" not in options
-    assert captured["tools"]
+    assert {tool.name for tool in captured["tools"]} >= {
+        "list_files", "search_text", "read_repository_file"
+    }
+
+
+@pytest.mark.asyncio
+async def test_tool_runtime_keeps_legacy_read_file_alias_for_queued_calls(tmp_path):
+    (tmp_path / "README.md").write_text("legacy", encoding="utf-8")
+
+    async def callback(*args):
+        return None
+
+    runtime = ToolRuntime(
+        task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
+        container_id="unused", callback=callback, sandbox=SimpleNamespace(),
+        governance=FakeGovernance(), supervisor=FakeSupervisor(),
+    )
+
+    result = await runtime.execute("read_file", {"path": "README.md"})
+
+    assert result["content"] == "legacy"

@@ -9,13 +9,16 @@ import socket
 from datetime import UTC, datetime
 from typing import Any
 
-from opentelemetry import metrics, trace
+from opentelemetry import _logs, metrics, trace
+from opentelemetry.exporter.otlp.proto.http._log_exporter import OTLPLogExporter
 from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.instrumentation.redis import RedisInstrumentor
 from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
-from opentelemetry.metrics import Counter, Histogram
+from opentelemetry.metrics import Counter, Histogram, ObservableGauge, Observation
+from opentelemetry.sdk._logs import LoggingHandler, LoggerProvider
+from opentelemetry.sdk._logs.export import BatchLogRecordProcessor
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
@@ -28,7 +31,9 @@ from .config import get_settings
 _configured = False
 _tracer_provider: TracerProvider | None = None
 _meter_provider: MeterProvider | None = None
-_instruments: dict[str, Counter | Histogram] | None = None
+_logger_provider: LoggerProvider | None = None
+_instruments: dict[str, Counter | Histogram | ObservableGauge] | None = None
+_queue_depth = {"QUEUED": 0, "RUNNING": 0}
 _logging_configured = False
 
 
@@ -72,7 +77,11 @@ def configure_logging() -> None:
     _logging_configured = True
     context_filter = _TraceContextFilter()
     formatter = _PrivacySafeJsonFormatter()
-    loggers = [logging.getLogger(), logging.getLogger("uvicorn.error")]
+    loggers = [
+        logging.getLogger(),
+        logging.getLogger("uvicorn.error"),
+        logging.getLogger("uvicorn.access"),
+    ]
     for logger in loggers:
         for handler in logger.handlers:
             handler.addFilter(context_filter)
@@ -98,7 +107,7 @@ def _endpoint() -> str | None:
 
 def configure_observability() -> bool:
     """Configure OTLP export once. No endpoint means an intentionally quiet no-op."""
-    global _configured, _meter_provider, _tracer_provider
+    global _configured, _logger_provider, _meter_provider, _tracer_provider
     if _configured:
         return _tracer_provider is not None
     _configured = True
@@ -123,6 +132,19 @@ def configure_observability() -> bool:
     )
     _meter_provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(_meter_provider)
+    _logger_provider = LoggerProvider(resource=resource)
+    _logger_provider.add_log_record_processor(BatchLogRecordProcessor(
+        OTLPLogExporter(endpoint=f"{endpoint}/v1/logs")
+    ))
+    _logs.set_logger_provider(_logger_provider)
+    otlp_log_handler = LoggingHandler(
+        level=logging.NOTSET, logger_provider=_logger_provider
+    )
+    logging.getLogger().addHandler(otlp_log_handler)
+    for logger_name in ("uvicorn.error", "uvicorn.access"):
+        target = logging.getLogger(logger_name)
+        if not target.propagate:
+            target.addHandler(otlp_log_handler)
     from .database import engine
 
     SQLAlchemyInstrumentor().instrument(
@@ -146,6 +168,8 @@ def observability_status() -> dict[str, Any]:
 
 
 def shutdown_observability() -> None:
+    if _logger_provider:
+        _logger_provider.shutdown()
     if _meter_provider:
         _meter_provider.shutdown()
     if _tracer_provider:
@@ -156,7 +180,14 @@ def tracer():
     return trace.get_tracer("autodev.agent", "0.1.0")
 
 
-def _runtime_instruments() -> dict[str, Counter | Histogram]:
+def _queue_depth_observations(_options: Any) -> list[Observation]:
+    return [
+        Observation(value, _attributes({"status": status}))
+        for status, value in _queue_depth.items()
+    ]
+
+
+def _runtime_instruments() -> dict[str, Counter | Histogram | ObservableGauge]:
     global _instruments
     if _instruments is None:
         meter = metrics.get_meter("autodev.runtime", "0.1.0")
@@ -193,6 +224,17 @@ def _runtime_instruments() -> dict[str, Counter | Histogram]:
             "worker_job_duration": meter.create_histogram(
                 "autodev.worker.job.duration", unit="ms"
             ),
+            "execution_transitions": meter.create_counter(
+                "autodev.execution.transitions", unit="{job}"
+            ),
+            "execution_queue_depth": meter.create_observable_gauge(
+                "autodev.execution.queue.depth",
+                callbacks=[_queue_depth_observations],
+                unit="{job}",
+            ),
+            "event_stream_messages": meter.create_counter(
+                "autodev.redis.event_stream.messages", unit="{message}"
+            ),
             "http_requests": meter.create_counter(
                 "autodev.http.server.requests", unit="{request}"
             ),
@@ -200,6 +242,14 @@ def _runtime_instruments() -> dict[str, Counter | Histogram]:
                 "http.server.request.duration", unit="s"
             ),
         }
+        for status in ("QUEUED", "RUNNING", "DONE", "FAILED", "CANCELLED"):
+            _instruments["execution_transitions"].add(
+                0, _attributes({"status": status})
+            )
+        for operation in ("published", "delivered", "publish_failed"):
+            _instruments["event_stream_messages"].add(
+                0, _attributes({"operation": operation})
+            )
     return _instruments
 
 
@@ -207,7 +257,8 @@ def _attributes(values: dict[str, Any]) -> dict[str, str | int | float | bool]:
     """Keep dimensions bounded and exclude prompts, paths, commands, and tool output."""
     allowed = {
         "agent_id", "capability", "decision", "fallback", "model", "policy",
-        "operation", "provider", "status", "task_id", "tool", "type",
+        "operation", "provider", "selection_source", "status", "task_id",
+        "tool", "type",
     }
     result: dict[str, str | int | float | bool] = {}
     for key, value in values.items():
@@ -323,6 +374,25 @@ def observe_worker_job(*, operation: str, status: str, duration_ms: int) -> None
     _runtime_instruments()["worker_jobs"].add(1, attributes)
     _runtime_instruments()["worker_job_duration"].record(
         duration_ms, attributes)
+
+
+def observe_execution_queue(
+    *, queued: int, running: int, transition: str | None = None,
+    transition_count: int = 1,
+) -> None:
+    _queue_depth["QUEUED"] = queued
+    _queue_depth["RUNNING"] = running
+    _runtime_instruments()
+    if transition:
+        _runtime_instruments()["execution_transitions"].add(
+            transition_count, _attributes({"status": transition})
+        )
+
+
+def observe_event_stream(*, operation: str, count: int = 1) -> None:
+    _runtime_instruments()["event_stream_messages"].add(
+        count, _attributes({"operation": operation})
+    )
 
 
 def observe_http_request(

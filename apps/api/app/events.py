@@ -7,9 +7,10 @@ from redis.asyncio import Redis
 from redis.exceptions import RedisError
 
 from .config import get_settings
+from .observability import observe_event_stream
 
 
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("autodev.events")
 
 
 class EventHub:
@@ -67,6 +68,7 @@ class EventHub:
                         if task_id is not None and payload.get("task_id") != task_id:
                             continue
                         await websocket.send_json({**payload, "cursor": current})
+                        observe_event_stream(operation="delivered")
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -82,8 +84,10 @@ class EventHub:
                     maxlen=self._max_length,
                     approximate=True,
                 )
+                observe_event_stream(operation="published")
                 return
             except RedisError:
+                observe_event_stream(operation="publish_failed")
                 logger.exception(
                     "Redis event publish failed; using local fan-out")
         stale: list[WebSocket] = []

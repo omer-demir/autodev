@@ -4,7 +4,8 @@ from copilot.rpc import PermissionDecisionApproveOnce, PermissionDecisionUserNot
 from copilot.session_events import PermissionRequestCustomTool
 
 _WORKBENCH_TOOL_NAMES = {
-    "list_files", "search_text", "read_file", "write_file", "delete_file", "run_command",
+    "list_files", "search_text", "read_repository_file", "write_file", "delete_file",
+    "run_command",
 }
 
 

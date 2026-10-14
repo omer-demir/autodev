@@ -1,5 +1,5 @@
 name: Governed Workspace Harness
-version: 1.0.0
+version: 1.1.0
 description: Versioned tool schemas and capability bindings for repository work.
 capability_catalog: { id: governance, version: 1.0.0 }
 tools:
@@ -24,7 +24,7 @@ tools:
         pattern: { type: string }
         max_matches: { type: integer }
       required: [query]
-  - name: read_file
+  - name: read_repository_file
     description: Read a bounded UTF-8 file chunk.
     capability: repository.read
     input_schema:

@@ -61,7 +61,7 @@ The core model-tool path is implemented by [ToolRuntime](../../apps/api/app/agen
 
 ## Capability classification
 
-Simple tools have a fixed binding. For example, `read_file` maps to `repository.read` and `write_file` maps to `repository.write`.
+Simple tools have a fixed binding. For example, `read_repository_file` maps to `repository.read` and `write_file` maps to `repository.write`.
 
 `run_command` is argument-dependent. The `command-v1` resolver receives an argument vector, not an unparsed shell string. It recognizes bounded families such as:
 

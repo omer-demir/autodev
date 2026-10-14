@@ -4,14 +4,15 @@ description: Implements repository changes and validates them in the task sandbo
 status: promoted
 identity:
   id: did:local:developer
-instructions: Use the attached RPI skills as the default execution loop and ground
+instructions:
+  Use the attached RPI skills as the default execution loop and ground
   every phase in tool evidence.
 skills:
-- rpi-orchestrator
-- rpi-research
-- rpi-plan
-- rpi-implement
-- rpi-review
+  - rpi-orchestrator
+  - rpi-research
+  - rpi-plan
+  - rpi-implement
+  - rpi-review
 policy: development
 evaluation_suite: developer
 environment:
@@ -19,7 +20,8 @@ environment:
   network_mode: bridge
   workspace_access: read-write
   pool_profile: python-hyperv-2cpu-2gi-egress
-  setup_instructions: Inspect manifests and lockfiles, install required project dependencies
+  setup_instructions:
+    Inspect manifests and lockfiles, install required project dependencies
     using the repository package manager, and run the repository's own checks.
 model:
   provider: copilot
@@ -28,25 +30,25 @@ model:
     provider: ollama
     name: gemma4:e2b
 capabilities:
-- repository.read
-- repository.write
-- test.run
-- build.run
-- dependency.install
-- security.scan
-- git.status
-- git.diff
+  - repository.read
+  - repository.write
+  - test.run
+  - build.run
+  - dependency.install
+  - security.scan
+  - git.status
+  - git.diff
 mcp_servers:
-- workspace
+  - workspace
 harness:
   id: workspace
-  version: 1.0.0
+  version: 1.1.0
 approval:
-- git.commit
-- git.push
+  - git.commit
+  - git.push
 deny:
-- production.deploy
-- host.credentials.read
+  - production.deploy
+  - host.credentials.read
 promotion:
   evaluation_run_id: EVAL-7B3CF955996D
   dataset_id: DATASET-56A35A475781
@@ -64,12 +66,12 @@ promotion:
     defended: 15
     total: 17
     missing_vectors:
-    - transaction-guardrails
-    - skill-provenance
+      - transaction-guardrails
+      - skill-provenance
     prompt_hash: 99c510316ba20e1690c6585026c1e7941f00f222ebfbcebb1b4faa9518755ae0
     blocking: false
 evaluation_required: false
 evaluation_override:
   approved_by: local-admin
   reason: Local test
-  approved_at: '2026-10-11T19:58:02.445836+00:00'
+  approved_at: "2026-10-11T19:58:02.445836+00:00"

@@ -199,6 +199,7 @@ services:
     image: oliver006/redis_exporter:v1.77.0
     environment:
       REDIS_ADDR: redis://redis:6379
+      REDIS_EXPORTER_CHECK_SINGLE_STREAMS: autodev:events
     depends_on:
       redis: {condition: service_healthy}
     networks: [control]
@@ -208,7 +209,7 @@ services:
       dockerfile: observability/collector.Dockerfile
     command: ["--config=/etc/otelcol-contrib/autodev.yaml"]
     ports: ["4318:4318"]
-    depends_on: [tempo]
+    depends_on: [tempo, loki]
     networks: [control]
   tempo:
     build:

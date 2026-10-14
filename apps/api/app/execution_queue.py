@@ -2,10 +2,12 @@ from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 from sqlmodel import Session, or_, select
 
 from .database import engine
 from .models import ExecutionJob
+from .observability import observe_execution_queue
 
 
 ACTIVE_JOB_STATUSES = {"QUEUED", "RUNNING"}
@@ -14,6 +16,26 @@ TERMINAL_JOB_STATUSES = {"DONE", "FAILED", "CANCELLED"}
 
 class ExecutionConflict(RuntimeError):
     pass
+
+
+def _observe_queue_state(
+    session: Session, *, transition: str | None = None,
+    transition_count: int = 1,
+) -> None:
+    counts = {
+        status: int(session.exec(
+            select(func.count(ExecutionJob.id)).where(
+                ExecutionJob.status == status
+            )
+        ).one())
+        for status in ("QUEUED", "RUNNING")
+    }
+    observe_execution_queue(
+        queued=counts["QUEUED"],
+        running=counts["RUNNING"],
+        transition=transition,
+        transition_count=transition_count,
+    )
 
 
 def enqueue_execution(
@@ -34,6 +56,7 @@ def enqueue_execution(
                 )
             ).first()
             if existing:
+                _observe_queue_state(session)
                 if existing.operation == operation and existing.payload == payload_value:
                     return existing
                 raise ExecutionConflict(
@@ -62,6 +85,7 @@ def enqueue_execution(
                 f"Task {task_id} already has an active {concurrent.operation} execution"
             )
         session.refresh(job)
+        _observe_queue_state(session, transition="QUEUED")
         return job
 
 
@@ -87,6 +111,11 @@ def claim_execution(
             session.add(item)
         if exhausted:
             session.commit()
+            _observe_queue_state(
+                session,
+                transition="FAILED",
+                transition_count=len(exhausted),
+            )
         statement = (
             select(ExecutionJob)
             .where(
@@ -106,6 +135,7 @@ def claim_execution(
             statement = statement.with_for_update(skip_locked=True)
         job = session.exec(statement).first()
         if not job:
+            _observe_queue_state(session)
             return None
         job.status = "RUNNING"
         job.worker_id = worker_id
@@ -117,6 +147,7 @@ def claim_execution(
         session.add(job)
         session.commit()
         session.refresh(job)
+        _observe_queue_state(session, transition="RUNNING")
         return job
 
 
@@ -154,11 +185,13 @@ def finish_execution(
         job.updated_at = datetime.now(UTC)
         session.add(job)
         session.commit()
+        _observe_queue_state(session, transition=status)
         return True
 
 
 def request_execution_cancellation(task_id: str) -> int:
     count = 0
+    cancelled_count = 0
     with Session(engine) as session:
         jobs = session.exec(
             select(ExecutionJob).where(
@@ -171,8 +204,14 @@ def request_execution_cancellation(task_id: str) -> int:
             if job.status == "QUEUED":
                 job.status = "CANCELLED"
                 job.deduplication_key = None
+                cancelled_count += 1
             job.updated_at = datetime.now(UTC)
             session.add(job)
             count += 1
         session.commit()
+        _observe_queue_state(
+            session,
+            transition="CANCELLED" if cancelled_count else None,
+            transition_count=cancelled_count,
+        )
     return count

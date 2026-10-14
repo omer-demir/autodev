@@ -1,0 +1,57 @@
+name: Infrastructure Implementation
+description: Implements and verifies infrastructure story work in an isolated task workspace so it can run alongside other discipline workflows without deploying.
+version: 1.0.0
+status: active
+default_mode: change
+phases:
+  - {
+      id: planning,
+      status: PLANNING,
+      label: Infrastructure scope,
+      progress: 15,
+    }
+  - {
+      id: implementation,
+      status: IMPLEMENTATION,
+      label: Infrastructure implementation,
+      progress: 35,
+    }
+  - {
+      id: testing,
+      status: TESTING,
+      label: Infrastructure verification,
+      progress: 65,
+    }
+  - { id: review, status: REVIEW, label: Infrastructure review, progress: 88 }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: sequential, max_parallel: 1 }
+stages:
+  - id: infrastructure-implementation
+    agent: did:local:infrastructure-implementer
+    responsibility: Resolve the applicable story IDs and implement declarative infrastructure, container, CI/CD, and validation changes without deploying or changing application scope.
+    inputs: [request, messages, workspace]
+    outputs: [infrastructure-result]
+  - id: infrastructure-verification
+    agent: did:local:tester
+    responsibility: Verify the infrastructure acceptance criteria with offline lint, schema, build, security, and configuration evidence without applying or deploying resources.
+    inputs: [request, infrastructure-result, workspace]
+    outputs: [infrastructure-verification]
+  - id: infrastructure-improvement
+    agent: did:local:infrastructure-implementer
+    responsibility: Apply evidence-backed infrastructure fixes from verification while preserving scope and never deploying resources.
+    inputs:
+      [request, infrastructure-result, infrastructure-verification, workspace]
+    outputs: [infrastructure-improvement]
+  - id: infrastructure-review
+    agent: did:local:delivery-reviewer
+    responsibility: Review the final infrastructure diff, verification and security evidence, acceptance criteria, reversibility, and pull-request readiness without deployment.
+    inputs:
+      [
+        request,
+        infrastructure-result,
+        infrastructure-verification,
+        infrastructure-improvement,
+        workspace,
+      ]
+    outputs: [infrastructure-review]
+    handoff: { include: [summary, artifacts, workspace] }

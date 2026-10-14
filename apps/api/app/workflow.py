@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import logging
 import shutil
@@ -46,11 +47,12 @@ from .workspace_snapshots import workspace_snapshots
 governance = get_governance_provider()
 sandbox_provider = get_sandbox_provider()
 running_tasks: dict[str, asyncio.Task[None]] = {}
-logger = logging.getLogger("uvicorn.error")
+logger = logging.getLogger("autodev.task")
 
 _LOG_FIELDS = {
     "provider", "model", "framework", "fallback", "latency_ms", "duration",
-    "exit_code", "capability", "decision", "policy", "reason", "trace_id", "span_id",
+    "exit_code", "capability", "decision", "policy", "reason", "selection_source",
+    "trace_id", "span_id",
 }
 
 
@@ -325,7 +327,15 @@ def _collect_changes(workspace: Path) -> dict[str, Any]:
             "additions": added,
             "deletions": deleted,
         })
-    return {"files": files, "diff": diff.stdout[-500_000:], "status": status.stdout}
+    revision = hashlib.sha256(
+        f"{status.stdout}\0{diff.stdout}".encode()
+    ).hexdigest()[:16]
+    return {
+        "files": files,
+        "diff": diff.stdout[-500_000:],
+        "status": status.stdout,
+        "revision": revision,
+    }
 
 
 async def _run_security(workspace: Path) -> dict[str, Any]:
@@ -366,7 +376,7 @@ async def _run_executable_workflow(
     workflow: dict[str, Any],
     workspace: Path,
     container_id: str,
-    model_name: str,
+    model_name: str | None,
     callback: Any,
     steering: list[str],
     session_context: list[str],
@@ -403,6 +413,16 @@ async def _run_executable_workflow(
         )
         input_artifacts = stage_artifact_inputs(stage, artifact_values)
         async with persistence_lock:
+            run_state["stages"][stage_id] = {
+                "status": "running",
+                "agent_id": agent_id,
+                "responsibility": str(stage["responsibility"]),
+                "inputs": list(stage.get("inputs", [])),
+                "outputs": list(stage["outputs"]),
+            }
+            await _save_artifact(
+                session, task.id, "workflow-run", run_state
+            )
             await record_event(
                 session,
                 task.id,
@@ -475,11 +495,15 @@ async def _run_executable_workflow(
                 model_recovery=model_recovery,
             )
         except Exception as exc:
-            run_state["stages"][stage_id] = {
-                "status": "failed",
-                "agent_id": agent_id,
-                "error": str(exc),
-            }
+            async with persistence_lock:
+                run_state["stages"][stage_id] = {
+                    **run_state["stages"][stage_id],
+                    "status": "failed",
+                    "error": str(exc),
+                }
+                await _save_artifact(
+                    session, task.id, "workflow-run", run_state
+                )
             raise
         finally:
             if not primary_stage:
@@ -487,6 +511,13 @@ async def _run_executable_workflow(
         async with persistence_lock:
             changes = await asyncio.to_thread(_collect_changes, workspace)
             await _save_artifact(session, task.id, "changes", changes)
+            run_state["stages"][stage_id] = {
+                **run_state["stages"][stage_id],
+                "status": "completed",
+            }
+            await _save_artifact(
+                session, task.id, "workflow-run", run_state
+            )
             await record_event(
                 session,
                 task.id,
@@ -522,6 +553,7 @@ async def _run_executable_workflow(
                     "status": "completed",
                     "wave": wave_index,
                     "agent_id": stage["agent"],
+                    "responsibility": str(stage["responsibility"]),
                     "inputs": list(stage.get("inputs", [])),
                     "outputs": outputs,
                     "handoff": {
@@ -680,10 +712,9 @@ async def run_task(task_id: str) -> None:
                 "Research, implement, validate, and review against explicit acceptance checks",
                 data={"artifact": "rpi-plan"},
             )
-            model_name = task.model_name or get_settings().model_name
             await record_event(
                 session, task_id, "agent.started", "Coding agent started",
-                f"{get_settings().model_provider} · {model_name}",
+                "The runtime will resolve each agent's preferred model and use the task model as fallback.",
             )
 
             async def callback(event_type: str, title: str, detail: str, severity: str, data: dict[str, Any] | None) -> None:
@@ -781,7 +812,7 @@ async def run_task(task_id: str) -> None:
                     workflow=workflow_definition,
                     workspace=workspace,
                     container_id=sandbox.container_id,
-                    model_name=model_name,
+                    model_name=task.model_name,
                     callback=callback,
                     steering=initial_steering,
                     session_context=session_context,
@@ -794,7 +825,7 @@ async def run_task(task_id: str) -> None:
                     title=task.title,
                     description=task.description,
                     agent_id=task.agent_id,
-                    model_name=model_name,
+                    model_name=task.model_name,
                     task_mode=task.mode,
                     verbose_logging=task.verbose_logging,
                     workspace=workspace,
@@ -820,10 +851,16 @@ async def run_task(task_id: str) -> None:
                 "tools": [
                     {"tool": event.title, "detail": event.detail}
                     for event in research_events
-                    if event.title in {"list_files", "search_text", "read_file"}
+                    if event.title in {
+                        "list_files", "search_text", "read_file",
+                        "read_repository_file",
+                    }
                 ],
                 "evidence_count": sum(
-                    event.title in {"list_files", "search_text", "read_file"}
+                    event.title in {
+                        "list_files", "search_text", "read_file",
+                        "read_repository_file",
+                    }
                     for event in research_events
                 ),
             }

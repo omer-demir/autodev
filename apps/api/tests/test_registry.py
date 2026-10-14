@@ -3,6 +3,7 @@ import yaml
 
 from app import registry
 from app.evaluation import set_agent_evaluation_requirement
+from app.workflow_orchestration import workflow_owner_agent
 
 
 def test_agent_yaml_cannot_self_promote(tmp_path, monkeypatch):
@@ -83,6 +84,30 @@ capabilities: [repository.read]
 """
 
     with pytest.raises(registry.RegistryError, match="must be true or false"):
+        registry.save_definition("agents", "candidate", raw)
+
+
+@pytest.mark.parametrize(
+    ("model_yaml", "message"),
+    [
+        ("model: copilot", "must be a YAML object"),
+        ("model:\n  provider: unknown\n  name: test", "provider must be"),
+        ("model:\n  provider: copilot\n  name: ''", "name must be non-empty"),
+    ],
+)
+def test_agent_model_preference_is_validated(
+    tmp_path, monkeypatch, model_yaml, message
+):
+    monkeypatch.setitem(registry.REGISTRIES, "agents", tmp_path)
+    raw = f"""name: Candidate
+version: 1.0.0
+identity:
+  id: did:local:candidate
+capabilities: [repository.read]
+{model_yaml}
+"""
+
+    with pytest.raises(registry.RegistryError, match=message):
         registry.save_definition("agents", "candidate", raw)
 
 
@@ -188,6 +213,45 @@ def test_active_workflow_agents_can_execute():
             f"Active workflow {definition['id']} has blocked agents: "
             f"{', '.join(blocked_agents)}"
         )
+
+
+@pytest.mark.parametrize(
+    ("workflow_id", "implementer", "stage_prefix"),
+    [
+        ("backend-implementation", "did:local:backend-implementer", "backend"),
+        ("ui-implementation", "did:local:frontend-implementer", "ui"),
+        (
+            "infrastructure-implementation",
+            "did:local:infrastructure-implementer",
+            "infrastructure",
+        ),
+    ],
+)
+def test_specialist_implementation_workflows_are_independently_runnable(
+    workflow_id, implementer, stage_prefix
+):
+    workflow = registry.get_definition("workflows", workflow_id)["data"]
+    stages = workflow["stages"]
+    agent_definitions = {
+        f"did:local:{definition['id']}": definition["data"]
+        for definition in registry.list_definitions("agents")
+    }
+
+    assert workflow["status"] == "active"
+    assert workflow["default_mode"] == "change"
+    assert workflow["orchestration"] == {
+        "mode": "sequential",
+        "max_parallel": 1,
+    }
+    assert stages[0]["id"] == f"{stage_prefix}-implementation"
+    assert stages[0]["agent"] == implementer
+    assert stages[0]["inputs"] == ["request", "messages", "workspace"]
+    assert stages[1]["agent"] == "did:local:tester"
+    assert stages[2]["agent"] == implementer
+    assert stages[3]["agent"] == "did:local:delivery-reviewer"
+    assert workflow_owner_agent(
+        workflow, agent_definitions, "did:local:developer"
+    ) == implementer
 
 
 @pytest.mark.parametrize(

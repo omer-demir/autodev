@@ -74,6 +74,95 @@ def test_task_lists_are_bounded_filterable_sortable_and_paginated():
     assert payload["counts"]["done"] >= 3
 
 
+def test_task_changes_are_loaded_by_directory_and_file():
+    suffix = uuid4().hex
+    task_id = f"TASK-CHANGES-{suffix}"
+    patch_text = """diff --git a/src/api/main.py b/src/api/main.py
+index 1111111..2222222 100644
+--- a/src/api/main.py
++++ b/src/api/main.py
+@@ -1 +1 @@
+-old
++new
+diff --git a/README.md b/README.md
+index 3333333..4444444 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1 @@
+-old readme
++new readme
+"""
+    files = [
+        {"path": "README.md", "status": "modified", "additions": 1, "deletions": 1},
+        {"path": "src/api/main.py", "status": "modified",
+            "additions": 1, "deletions": 1},
+        {"path": "src/api/routes/tasks.py", "status": "added",
+            "additions": 20, "deletions": 0},
+        {"path": "src/web/page.tsx", "status": "modified",
+            "additions": 4, "deletions": 2},
+        {"path": "node_modules/example/index.js",
+            "status": "added", "additions": 50, "deletions": 0},
+    ]
+    with TestClient(app) as client:
+        with Session(engine) as session:
+            project = Project(
+                name=f"Changes {suffix}", repository_path=f"/tmp/changes-{suffix}"
+            )
+            session.add(project)
+            session.commit()
+            session.refresh(project)
+            session.add(Task(
+                id=task_id,
+                project_id=project.id,
+                title="Browse changed files",
+                description="Load folders on demand",
+            ))
+            session.add(TaskArtifact(
+                task_id=task_id,
+                kind="changes",
+                content={"files": files, "diff": patch_text,
+                         "revision": "revision-1"},
+            ))
+            session.commit()
+
+        detail = client.get(f"/api/tasks/{task_id}")
+        root = client.get(f"/api/tasks/{task_id}/changes")
+        source = client.get(
+            f"/api/tasks/{task_id}/changes", params={"path": "src"}
+        )
+        api_directory = client.get(
+            f"/api/tasks/{task_id}/changes", params={"path": "src/api"}
+        )
+        file_diff = client.get(
+            f"/api/tasks/{task_id}/changes/diff",
+            params={"path": "src/api/main.py"},
+        )
+        invalid = client.get(
+            f"/api/tasks/{task_id}/changes", params={"path": "../secrets"}
+        )
+
+    assert detail.status_code == 200
+    assert detail.json()["artifacts"]["changes"] == {
+        "file_count": 5,
+        "revision": "revision-1",
+    }
+    assert [item["name"] for item in root.json()["entries"]] == [
+        "node_modules", "src", "README.md"
+    ]
+    assert root.json()["entries"][0]["file_count"] == 1
+    assert [item["name"] for item in source.json()["entries"]] == [
+        "api", "web"]
+    assert [item["name"] for item in api_directory.json()["entries"]] == [
+        "routes", "main.py"
+    ]
+    assert file_diff.status_code == 200
+    assert file_diff.json()["diff"].startswith(
+        "diff --git a/src/api/main.py b/src/api/main.py"
+    )
+    assert "README.md" not in file_diff.json()["diff"]
+    assert invalid.status_code == 400
+
+
 def test_repository_removal_deletes_attached_tasks_and_owned_data():
     suffix = uuid4().hex
     task_id = f"TASK-DELETE-{suffix}"

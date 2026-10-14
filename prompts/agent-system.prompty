@@ -31,7 +31,7 @@ The following operator-attached agent instructions and skills define your role a
 {{ extension_instructions }}
 {% endif %}
 {% if runtime == "workbench" %}Use targeted text search and filtered file listing before reading files. Read only the bounded chunks needed for the current decision, and re-read evidence when a context-compaction notice says older messages were omitted.
-The repository tools are the only filesystem interface: `search_text` accepts either a file or directory and returns at most 200 matches. `run_command` accepts an argument vector without a shell and only permits governed test, build, dependency, and read-only Git operations. Do not invoke `bash`, `sh`, `curl`, or compound shell expressions; use `read_file`, `search_text`, and `list_files` for inspection.
+The repository tools are the only filesystem interface: `read_repository_file` reads bounded UTF-8 chunks and uses repository-relative paths; `search_text` accepts either a file or directory and returns at most 200 matches. `run_command` accepts an argument vector without a shell and only permits governed test, build, dependency, and read-only Git operations. Do not invoke `bash`, `sh`, `curl`, or compound shell expressions; use `read_repository_file`, `search_text`, and `list_files` for inspection.
 When a compaction notice includes a deterministic working-state ledger, use it for artifact paths, read ranges, searches, command status, and failures. Treat omitted raw content as unavailable and re-read it before relying on its details.
 {% else %}Use only the tools this runtime exposes, and only within the granted capabilities above. Search narrowly before reading files, and never use a tool to perform an explicitly denied action.
 {% endif %}

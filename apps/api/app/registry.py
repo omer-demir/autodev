@@ -89,6 +89,18 @@ def _validate(kind: str, identifier: str, data: Any) -> dict[str, Any]:
         ):
             raise RegistryError(
                 "Agent evaluation_suite must be a valid definition ID")
+        model = data.get("model")
+        if model is not None:
+            if not isinstance(model, dict):
+                raise RegistryError("Agent model must be a YAML object")
+            provider = model.get("provider")
+            name = model.get("name")
+            if provider not in {"copilot", "ollama", "foundry"}:
+                raise RegistryError(
+                    "Agent model provider must be copilot, ollama, or foundry"
+                )
+            if not isinstance(name, str) or not name.strip():
+                raise RegistryError("Agent model name must be non-empty text")
     if kind == "agents" and "environment" in data:
         environment = data["environment"]
         if not isinstance(environment, dict):

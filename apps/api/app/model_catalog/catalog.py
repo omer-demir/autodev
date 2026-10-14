@@ -7,6 +7,17 @@ from .ollama import ollama_models as _ollama_models
 
 async def list_provider_models(provider: str) -> list[dict[str, Any]]:
     normalized = provider.casefold()
+    if normalized == "foundry":
+        settings = get_settings()
+        if not settings.foundry_responses_endpoint:
+            raise RuntimeError(
+                "Microsoft Foundry is configured but WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT is unset"
+            )
+        return [{
+            "name": settings.foundry_model,
+            "id": settings.foundry_model,
+            "provider": "foundry",
+        }]
     if normalized == "ollama":
         return await _ollama_models()
     if normalized == "copilot":

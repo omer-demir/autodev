@@ -11,12 +11,13 @@ def test_agent_harness_resolves_tool_schema_and_capability_catalog():
     tools = resolved_tools(harness)
     schemas = foundry_tool_schemas(harness)
 
-    assert harness["version"] == "1.0.0"
+    assert harness["version"] == "1.1.0"
     assert harness["resolved_capability_catalog"]["version"] == "1.0.0"
-    assert tools["read_file"]["capability"] == "repository.read"
-    assert next(item for item in schemas if item["name"] == "read_file") == {
+    assert tools["read_repository_file"]["capability"] == "repository.read"
+    assert "read_file" not in tools
+    assert next(item for item in schemas if item["name"] == "read_repository_file") == {
         "type": "function",
-        "name": "read_file",
+        "name": "read_repository_file",
         "description": "Read a bounded UTF-8 file chunk.",
         "parameters": {
             "type": "object",

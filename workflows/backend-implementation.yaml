@@ -1,0 +1,46 @@
+name: Backend Implementation
+description: Implements and verifies backend story work in an isolated task workspace so it can run alongside other discipline workflows.
+version: 1.0.0
+status: active
+default_mode: change
+phases:
+  - { id: planning, status: PLANNING, label: Backend scope, progress: 15 }
+  - {
+      id: implementation,
+      status: IMPLEMENTATION,
+      label: Backend implementation,
+      progress: 35,
+    }
+  - { id: testing, status: TESTING, label: Backend verification, progress: 65 }
+  - { id: review, status: REVIEW, label: Backend review, progress: 88 }
+  - { id: done, status: DONE, label: Done, progress: 100 }
+orchestration: { mode: sequential, max_parallel: 1 }
+stages:
+  - id: backend-implementation
+    agent: did:local:backend-implementer
+    responsibility: Resolve the applicable story IDs and implement backend contracts, services, persistence, migrations, and focused tests without changing frontend or infrastructure scope.
+    inputs: [request, messages, workspace]
+    outputs: [backend-result]
+  - id: backend-verification
+    agent: did:local:tester
+    responsibility: Verify the backend acceptance criteria, contracts, authorization boundaries, migrations, and focused test evidence.
+    inputs: [request, backend-result, workspace]
+    outputs: [backend-verification]
+  - id: backend-improvement
+    agent: did:local:backend-implementer
+    responsibility: Apply evidence-backed backend fixes from verification while preserving the requested story scope.
+    inputs: [request, backend-result, backend-verification, workspace]
+    outputs: [backend-improvement]
+  - id: backend-review
+    agent: did:local:delivery-reviewer
+    responsibility: Review the final backend diff, verification evidence, acceptance criteria, and pull-request readiness.
+    inputs:
+      [
+        request,
+        backend-result,
+        backend-verification,
+        backend-improvement,
+        workspace,
+      ]
+    outputs: [backend-review]
+    handoff: { include: [summary, artifacts, workspace] }

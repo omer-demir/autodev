@@ -68,7 +68,7 @@ environment:
 model: { provider: copilot, name: auto }
 capabilities: [repository.read, repository.write, git.status, git.diff]
 mcp_servers: [workspace]
-harness: { id: workspace, version: 1.0.0 }
+harness: { id: workspace, version: 1.1.0 }
 approval: [git.commit, git.push]
 deny: [dependency.install, production.deploy, host.credentials.read]
 source: &role_source

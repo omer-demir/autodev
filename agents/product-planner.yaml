@@ -1,11 +1,13 @@
 name: Product Planning Agent
 version: 0.2.0
-description: Turns decisions into scoped stories, acceptance criteria, dependencies,
+description:
+  Turns decisions into scoped stories, acceptance criteria, dependencies,
   and Markdown plans.
 status: draft
 identity:
   id: did:local:product-planner
-instructions: "Act as a product planner. Turn requests, research, designs, and decisions\
+instructions:
+  "Act as a product planner. Turn requests, research, designs, and decisions\
   \ into implementation-ready,\nindependently verifiable stories for backend, frontend,\
   \ infrastructure, mobile, and test agents.\n\nScope:\n- In scope: goals, story slicing,\
   \ stable IDs, acceptance criteria, discipline applicability,\n  dependencies, sequencing,\
@@ -46,31 +48,31 @@ model:
   provider: copilot
   name: auto
 capabilities:
-- repository.read
-- repository.write
-- git.status
-- git.diff
+  - repository.read
+  - repository.write
+  - git.status
+  - git.diff
 mcp_servers:
-- workspace
+  - workspace
 harness:
   id: workspace
-  version: 1.0.0
+  version: 1.1.0
 approval:
-- git.commit
-- git.push
+  - git.commit
+  - git.push
 deny:
-- dependency.install
-- production.deploy
-- host.credentials.read
+  - dependency.install
+  - production.deploy
+  - host.credentials.read
 source:
   adapted_from: https://github.com/github/awesome-copilot
   license: MIT
   discovery_indexes:
-  - https://github.com/Jenqyang/Awesome-AI-Agents
-  - https://github.com/kyrolabs/awesome-agents
+    - https://github.com/Jenqyang/Awesome-AI-Agents
+    - https://github.com/kyrolabs/awesome-agents
   trust: adapted-draft
 evaluation_required: false
 evaluation_override:
   approved_by: local-admin
   reason: Local test
-  approved_at: '2026-10-11T19:57:43.550937+00:00'
+  approved_at: "2026-10-11T19:57:43.550937+00:00"

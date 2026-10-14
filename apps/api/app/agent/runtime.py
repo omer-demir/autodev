@@ -11,6 +11,7 @@ from agent_framework.ollama import OllamaChatClient
 from ..config import get_settings
 from ..foundry import FoundryResponsesProvider
 from ..harness import foundry_tool_schemas, resolve_agent_harness, resolved_tools
+from ..model_selection import ModelSelection, resolve_agent_model
 from ..model_recovery import ModelRecoveryDecision
 from ..prompts import render_agent_system_prompt, render_prompt
 from ..providers import get_governance_provider, get_sandbox_provider
@@ -282,7 +283,7 @@ class AgentRuntime:
         title: str,
         description: str,
         agent_id: str,
-        model_name: str,
+        model_name: str | None,
         task_mode: str,
         verbose_logging: bool,
         workspace: Path,
@@ -298,6 +299,34 @@ class AgentRuntime:
         definition = get_definition(
             "agents", agent_id.removeprefix("did:local:")
         )["data"]
+        if model_provider is not None:
+            selection = ModelSelection(
+                provider=model_provider.casefold(),
+                model=(model_name or self.settings.model_name),
+                source="runtime_override",
+            )
+        else:
+            selection = await resolve_agent_model(
+                definition,
+                task_model=model_name,
+                configured_provider=self.settings.model_provider,
+                configured_model=self.settings.model_name,
+            )
+        model_name = selection.model
+        await callback(
+            "model.selected",
+            "Agent model selected",
+            f"{selection.provider} · {selection.model} · {selection.source.replace('_', ' ')}",
+            "info",
+            {
+                "provider": selection.provider,
+                "model": selection.model,
+                "selection_source": selection.source,
+                "agent_provider": selection.agent_provider,
+                "agent_model": selection.agent_model,
+                "agent_preference_available": selection.agent_preference_available,
+            },
+        )
         policy = get_definition(
             "policies", str(definition.get("policy", "development"))
         )["data"]
@@ -356,7 +385,7 @@ class AgentRuntime:
             },
         )
         seen_steering = set(steering or [])
-        provider = (model_provider or self.settings.model_provider).casefold()
+        provider = selection.provider
         if provider == "foundry":
             if not self.settings.foundry_responses_endpoint:
                 raise RuntimeError(

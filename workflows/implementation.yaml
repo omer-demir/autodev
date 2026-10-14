@@ -1,6 +1,6 @@
-name: Implementation
-version: 1.0.0
-description: Implements story IDs across applicable disciplines, then tests, verifies, improves, and prepares review.
+name: Combined Implementation (sequential)
+version: 1.1.0
+description: Implements cross-discipline story IDs sequentially in one task; use the Backend, UI, and Infrastructure workflows for isolated parallel tasks.
 status: active
 default_mode: change
 phases:
