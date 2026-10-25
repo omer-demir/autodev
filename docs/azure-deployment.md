@@ -1,5 +1,7 @@
 # Azure session deployment
 
+For a lower-cost family-only deployment that runs the control plane on one private VM and uses Cloudflare Tunnel as its only application ingress, see [Private Azure family demo through Cloudflare](azure-family-demo.md).
+
 The Azure sandbox uses a custom Azure Container Apps dynamic session pool. Each session runs in a Hyper-V boundary. Deploy separate pools for the `none` and `bridge` agent network profiles; a pool's egress mode is immutable for an active workload and the API fails closed on a profile mismatch.
 
 The production control plane runs the API and worker as separate Container Apps. PostgreSQL owns durable application and execution state, Redis carries replayable events, Blob Storage owns workspace revisions and evidence, and Key Vault stores tenant connector credentials. API replicas do not execute queued tasks.

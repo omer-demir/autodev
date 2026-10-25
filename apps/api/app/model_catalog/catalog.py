@@ -5,6 +5,19 @@ from .copilot import copilot_models as _copilot_models
 from .ollama import ollama_models as _ollama_models
 
 
+def _foundry_models() -> list[dict[str, Any]]:
+    settings = get_settings()
+    configured = [
+        settings.foundry_model,
+        *(item.strip() for item in getattr(settings, "foundry_models", "").split(",")),
+    ]
+    return [
+        {"name": name, "id": name, "provider": "foundry"}
+        for name in dict.fromkeys(configured)
+        if name
+    ]
+
+
 async def list_provider_models(provider: str) -> list[dict[str, Any]]:
     normalized = provider.casefold()
     if normalized == "foundry":
@@ -13,11 +26,7 @@ async def list_provider_models(provider: str) -> list[dict[str, Any]]:
             raise RuntimeError(
                 "Microsoft Foundry is configured but WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT is unset"
             )
-        return [{
-            "name": settings.foundry_model,
-            "id": settings.foundry_model,
-            "provider": "foundry",
-        }]
+        return _foundry_models()
     if normalized == "ollama":
         return await _ollama_models()
     if normalized == "copilot":
@@ -38,11 +47,7 @@ async def list_runtime_models() -> list[dict[str, Any]]:
             raise RuntimeError(
                 "Microsoft Foundry is configured but WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT is unset"
             )
-        return [{
-            "name": settings.foundry_model,
-            "id": settings.foundry_model,
-            "provider": "foundry",
-        }]
+        return _foundry_models()
     if provider == "ollama":
         return await _ollama_models()
     if provider != "copilot":

@@ -230,6 +230,25 @@ async def test_model_catalog_marks_ollama_models_as_fallback():
 
 
 @pytest.mark.asyncio
+async def test_model_catalog_lists_configured_foundry_deployments_once():
+    settings = SimpleNamespace(
+        model_provider="foundry",
+        foundry_responses_endpoint="https://foundry.example/openai/v1/responses",
+        foundry_model="primary",
+        foundry_models="primary, fast,quality, fast",
+    )
+
+    with patch("app.model_catalog.catalog.get_settings", return_value=settings):
+        result = await list_runtime_models()
+
+    assert result == [
+        {"name": "primary", "id": "primary", "provider": "foundry"},
+        {"name": "fast", "id": "fast", "provider": "foundry"},
+        {"name": "quality", "id": "quality", "provider": "foundry"},
+    ]
+
+
+@pytest.mark.asyncio
 async def test_copilot_catalog_checks_authentication_before_listing_models():
     client = AsyncMock()
     client.__aenter__.return_value = client

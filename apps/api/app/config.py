@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     model_pricing_json: str = "{}"
     foundry_responses_endpoint: str | None = None
     foundry_model: str = "gpt-5.4-mini"
+    foundry_models: str = ""
     foundry_reasoning_summary: str | None = None
     ollama_url: str = "http://127.0.0.1:11434"
     copilot_home: str = "~/.copilot"

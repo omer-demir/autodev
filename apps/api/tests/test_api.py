@@ -369,7 +369,7 @@ def test_task_can_be_created_and_started(tmp_path):
             schedule.assert_called_once_with(task["id"])
 
 
-def test_task_creation_accepts_explicit_evaluation_bypass():
+def test_task_creation_honors_explicit_agent_with_evaluation_bypass():
     suffix = uuid4().hex
     agent_id = f"trial-{suffix}"
 
@@ -380,6 +380,7 @@ def test_task_creation_accepts_explicit_evaluation_bypass():
                     "name": "Trial workflow",
                     "version": "1.0.0",
                     "status": "active",
+                    "default_agent": "did:local:developer",
                     "stages": [],
                 }
             }

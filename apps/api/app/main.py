@@ -829,8 +829,10 @@ async def create_task(
     stage_agents = [
         str(stage["agent"]) for stage in workflow.get("stages", [])
     ]
-    default_agent = str(workflow.get("default_agent") or payload.agent_id)
-    agent_ids = list(dict.fromkeys(stage_agents or [default_agent]))
+    workflow_default_agent = str(
+        workflow.get("default_agent") or payload.agent_id
+    )
+    agent_ids = list(dict.fromkeys(stage_agents or [payload.agent_id]))
     agent_definitions = {}
     identities = {}
     for agent_id in agent_ids:
@@ -854,7 +856,9 @@ async def create_task(
                 session, identifier, principal.organization_id, agent,
             )
         except AgentIdentityError as exc:
-            raise HTTPException(409, str(exc)) from exc
+            raise HTTPException(
+                409, f"Workflow agent {agent_id}: {exc}"
+            ) from exc
     existing_ids = session.exec(select(Task.id)).all()
     numeric_ids = (
         int(value.removeprefix("TASK-"))
@@ -863,8 +867,12 @@ async def create_task(
     )
     next_id = max(numeric_ids, default=0) + 1
     task_values = payload.model_dump()
-    task_agent_id = workflow_owner_agent(
-        workflow, agent_definitions, default_agent
+    task_agent_id = (
+        workflow_owner_agent(
+            workflow, agent_definitions, workflow_default_agent
+        )
+        if stage_agents
+        else payload.agent_id
     )
     task_values["agent_id"] = task_agent_id
     task = Task(
