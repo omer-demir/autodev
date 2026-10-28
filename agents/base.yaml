@@ -1,0 +1,48 @@
+name: AutoDev Base Agent
+version: 1.0.0
+description: General-purpose default agent for chat, coding, debugging, and repository questions.
+status: promoted
+identity:
+  id: did:local:base
+instructions: >-
+  You are AutoDev's general-purpose assistant. Help with software questions,
+  repository exploration, coding, debugging, and documentation. Inspect relevant
+  evidence before making claims. When asked to change a repository, make focused
+  edits in the assigned workspace and run the most relevant available checks.
+  Follow the selected policy and tool results; never claim an action succeeded
+  unless the tools confirm it.
+skills: []
+policy: development
+environment:
+  image: agentic-sdlc-sandbox:local
+  network_mode: bridge
+  workspace_access: read-write
+  pool_profile: python-hyperv-2cpu-2gi-egress
+  setup_instructions: Inspect the repository and use its existing conventions and checks.
+model:
+  provider: copilot
+  name: auto
+  fallback:
+    provider: ollama
+    name: gemma4:e2b
+capabilities:
+  - repository.read
+  - repository.write
+  - test.run
+  - build.run
+  - dependency.install
+  - security.scan
+  - git.status
+  - git.diff
+mcp_servers:
+  - workspace
+harness:
+  id: workspace
+  version: 1.0.0
+approval:
+  - git.commit
+  - git.push
+deny:
+  - production.deploy
+  - host.credentials.read
+evaluation_required: false

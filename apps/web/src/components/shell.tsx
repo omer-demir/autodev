@@ -12,7 +12,7 @@ import { api } from "@/lib/api";
 import type { AuthUser } from "@/lib/types";
 
 const nav = [
-  { label: "Workspace", items: [{ href: "/", label: "Dashboard", icon: CircleGauge }, { href: "/repositories", label: "Repositories", icon: FolderGit2 }, { href: "/tasks", label: "Tasks", icon: FileCheck2 }, { href: "/sessions", label: "Sessions", icon: MessagesSquare }] },
+  { label: "Workspace", items: [{ href: "/", label: "Dashboard", icon: CircleGauge }, { href: "/chat", label: "Chat", icon: MessagesSquare }, { href: "/repositories", label: "Repositories", icon: FolderGit2 }, { href: "/tasks", label: "Tasks", icon: FileCheck2 }, { href: "/sessions", label: "Sessions", icon: MessagesSquare }] },
   { label: "Runtime", items: [{ href: "/management", label: "Agents & tools", icon: Bot }, { href: "/sandboxes", label: "Sandboxes", icon: Box }] },
   { label: "Control", items: [{ href: "/connectors", label: "Connections", icon: Cable }, { href: "/datasets", label: "Datasets", icon: Database }, { href: "/evaluations", label: "Evaluations", icon: Fingerprint }, { href: "/security", label: "Security", icon: ShieldCheck }, { href: "/governance", label: "Governance", icon: Scale }, { href: "/evidence", label: "Evidence", icon: Blocks }, { href: "/admin", label: "Members", icon: Users }] },
 ];

@@ -1,4 +1,7 @@
-# Autodev developer guide
+---
+title: AutoDev developer guide
+description: Local startup, model setup, debugging, and validation instructions for AutoDev developers.
+---
 
 This runbook covers local startup, the embedded AgentMesh integration, debugging, and validation. Product usage belongs in [Features and how-to](docs/product/features-and-how-to.md); cloud sandbox deployment belongs in [Azure session deployment](docs/azure-deployment.md).
 

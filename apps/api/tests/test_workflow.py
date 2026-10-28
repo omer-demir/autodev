@@ -1,4 +1,6 @@
 from copy import deepcopy
+import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -10,6 +12,8 @@ from sqlmodel import Session, select
 from app.database import create_db_and_tables, engine
 from app.models import Event, Project, Sandbox, Task, TaskArtifact
 from app.workflow import (
+    _commit_subject,
+    _collect_changes,
     _pull_request_body,
     _run_executable_workflow,
     _save_artifact,
@@ -22,45 +26,109 @@ def initialize_database():
     create_db_and_tables()
 
 
-def test_pull_request_body_contains_review_and_governance_evidence():
+@pytest.mark.asyncio
+async def test_pull_request_body_uses_model_output_without_request_or_file_sections():
     task = Task(
         id="TASK-PR-BODY",
         project_id=1,
         title="Improve publication",
-        description="Publish a complete, reviewable change.",
+        description="Do not copy this chat message into the pull request.",
         workflow_id="implementation",
         agent_id="did:local:developer",
         created_by="requester@example.com",
     )
 
-    body = _pull_request_body(
-        task,
-        {
-            "changes": {
-                "files": [{
-                    "path": "src/publish.py",
-                    "status": "modified",
-                    "additions": 12,
-                    "deletions": 3,
-                }],
+    with patch(
+        "app.workflow.generate_text",
+        new=AsyncMock(return_value=(
+            "## Summary\nImplement concise pull request metadata.\n\n"
+            "## Changed files\nThis section is removed.\n\n"
+            "## Message\nThis section is removed too.\n\n"
+            "## Validation\nFour tests passed."
+        )),
+    ) as generate:
+        body = await _pull_request_body(
+            task,
+            {
+                "changes": {
+                    "files": [{
+                        "path": "src/publish.py",
+                        "status": "modified",
+                        "additions": 12,
+                        "deletions": 3,
+                    }],
+                    "diff": "diff --git a/src/publish.py b/src/publish.py",
+                },
+                "tests": {"passed": 4, "failed": 0, "skipped": 0},
+                "security": {"high": 0, "medium": 0, "low": 1},
             },
-            "tests": {"passed": 4, "failed": 0, "skipped": 0},
-            "security": {
-                "high": 0,
-                "medium": 0,
-                "low": 1,
-                "scanners": {"Semgrep": "passed", "Gitleaks": "passed"},
-            },
-        },
-        "approver@example.com",
-    )
+        )
 
-    assert "## Summary" in body
-    assert "`src/publish.py` — modified (+12/-3)" in body
-    assert "Governed tests: 4 passed, 0 failed, 0 skipped" in body
-    assert "Security findings: 0 high, 0 medium, 1 low" in body
-    assert "Requested by: `requester@example.com`" in body
-    assert "Approved by: `approver@example.com`" in body
+    assert body == (
+        "## Summary\nImplement concise pull request metadata.\n\n"
+        "## Validation\nFour tests passed."
+    )
+    prompt = generate.await_args.kwargs["prompt"]
+    assert task.description not in prompt
+    assert "src/publish.py" in prompt
+    assert "## Changed files" not in body
+    assert "## Message" not in body
+
+
+def test_collect_changes_records_individual_file_patches(tmp_path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+
+    def git(*args: str) -> None:
+        subprocess.run(
+            ["git", "-C", str(workspace), *args],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+    git("init", "--quiet")
+    git("config", "user.name", "AutoDev Test")
+    git("config", "user.email", "test@example.com")
+    first = workspace / "first.txt"
+    second = workspace / "second.txt"
+    first.write_text("before\n", encoding="utf-8")
+    second.write_text("second\n", encoding="utf-8")
+    git("add", "first.txt", "second.txt")
+    git("commit", "--quiet", "-m", "initial")
+    first.write_text("after\n", encoding="utf-8")
+    new_file = workspace / "new.txt"
+    new_file.write_text("new content\n", encoding="utf-8")
+
+    changes = _collect_changes(workspace)
+    patches = {item["path"]: item["patch"] for item in changes["files"]}
+
+    assert set(patches) == {"first.txt", "new.txt"}
+    assert "after" in patches["first.txt"]
+    assert "new content" in patches["new.txt"]
+    assert "second.txt" not in patches["first.txt"]
+    assert changes["files"][0]["additions"] == 1
+
+
+@pytest.mark.asyncio
+async def test_commit_subject_is_generated_from_diff_not_task_text():
+    task = Task(
+        id="TASK-COMMIT-SUBJECT",
+        project_id=1,
+        title="Please make these changes in the repository",
+        description="This is a long conversational task request.",
+    )
+    with patch(
+        "app.workflow.generate_text",
+        new=AsyncMock(return_value="fix: summarize the actual change\nExtra text"),
+    ) as generate:
+        subject = await _commit_subject(task, "diff --git a/src/a.py b/src/a.py")
+
+    assert subject == "fix: summarize the actual change"
+    prompt = generate.await_args.kwargs["prompt"]
+    assert task.title not in prompt
+    assert task.description not in prompt
+    assert "diff --git a/src/a.py b/src/a.py" in json.loads(prompt)["diff"]
 
 
 @pytest.mark.asyncio

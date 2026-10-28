@@ -6,8 +6,13 @@ from .content_filter_error import FoundryContentFilterError
 
 def foundry_error(status_code: int, payload: Any) -> FoundryApiError:
     error = payload.get("error", {}) if isinstance(payload, dict) else {}
+    if not isinstance(error, dict):
+        error = {}
+    inner_error = error.get("innererror", {})
+    if not isinstance(inner_error, dict):
+        inner_error = {}
     code = str(error.get("code") or "provider_error")
-    if code == "content_filter" or error.get("innererror", {}).get("code") == "ContentFiltered":
+    if code == "content_filter" or inner_error.get("code") == "ContentFiltered":
         categories: set[str] = set()
         source = "unknown"
         for item in error.get("content_filters", []):
@@ -22,14 +27,26 @@ def foundry_error(status_code: int, payload: Any) -> FoundryApiError:
         return FoundryContentFilterError(
             status_code,
             code=code,
-            inner_code=error.get("innererror", {}).get("code"),
+            inner_code=inner_error.get("code"),
             categories=sorted(categories),
             source=source,
         )
+    message = error.get("message")
+    if isinstance(message, str):
+        message = " ".join(message.split())[:500]
+    else:
+        message = ""
+    parameter = error.get("param")
+    if isinstance(parameter, str) and parameter:
+        parameter_detail = f", parameter {parameter}"
+    else:
+        parameter_detail = ""
+    message_detail = f": {message}" if message else ""
     return FoundryApiError(
         status_code,
         code,
-        f"Microsoft Foundry request failed with HTTP {status_code}",
+        f"Microsoft Foundry request failed with HTTP {status_code} "
+        f"({code}{parameter_detail}){message_detail}",
     )
 
 

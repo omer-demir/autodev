@@ -10,6 +10,7 @@ class Project(SQLModel, table=True):
     name: str
     repository_path: str
     source_type: str = "local"
+    workspace_only: bool = False
     repository_url: str | None = None
     default_branch: str | None = None
     connector_id: str | None = Field(

@@ -1,4 +1,7 @@
-# Architecture design deep dives
+---
+title: Architecture design deep dives
+description: Implementation-oriented guides to AutoDev workflow and governance boundaries.
+---
 
 This series explains how Autodev turns a task into governed agent work. It complements the [architecture overview](../architecture.md), [ADRs](../adr/README.md), and formal [Draw.io catalog](../diagrams/README.md) with implementation-oriented, hand-drawn views.
 

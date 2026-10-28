@@ -1,0 +1,42 @@
+name: conventional-commit
+version: 0.1.0
+description: Prompt and workflow for generating conventional commit messages using
+  a structured XML format. Guides users to create standardized, descriptive commit
+  messages in line with the Conventional Commits specification, including instructions,
+  examples, and validation.
+instructions: "### Instructions\n\n```xml\n\t<description>This file contains a prompt\
+  \ template for generating conventional commit messages. It provides instructions,\
+  \ examples, and formatting guidelines to help users write standardized, descriptive\
+  \ commit messages in accordance with the Conventional Commits specification.</description>\n\
+  ```\n\n### Workflow\n\n**Follow these steps:**\n\n1. Run `git status` to review\
+  \ changed files.\n2. Run `git diff` or `git diff --cached` to inspect changes.\n\
+  3. Stage your changes with `git add <file>`.\n4. Construct your commit message using\
+  \ the following XML structure.\n5. After generating your commit message, Copilot\
+  \ will automatically run the following command in your integrated terminal (no confirmation\
+  \ needed):\n\n```bash\ngit commit -m \"type(scope): description\"\n```\n\n6. Just\
+  \ execute this prompt and Copilot will handle the commit for you in the terminal.\n\
+  \n### Commit Message Structure\n\n```xml\n<commit-message>\n\t<type>feat|fix|docs|style|refactor|perf|test|build|ci|chore|revert</type>\n\
+  \t<scope>()</scope>\n\t<description>A short, imperative summary of the change</description>\n\
+  \t<body>(optional: more detailed explanation)</body>\n\t<footer>(optional: e.g.\
+  \ BREAKING CHANGE: details, or issue references)</footer>\n</commit-message>\n```\n\
+  \n### Examples\n\n```xml\n<examples>\n\t<example>feat(parser): add ability to parse\
+  \ arrays</example>\n\t<example>fix(ui): correct button alignment</example>\n\t<example>docs:\
+  \ update README with usage instructions</example>\n\t<example>refactor: improve\
+  \ performance of data processing</example>\n\t<example>chore: update dependencies</example>\n\
+  \t<example>feat!: send email on registration (BREAKING CHANGE: email service required)</example>\n\
+  </examples>\n```\n\n### Validation\n\n```xml\n<validation>\n\t<type>Must be one\
+  \ of the allowed types. See <reference>https://www.conventionalcommits.org/en/v1.0.0/#specification</reference></type>\n\
+  \t<scope>Optional, but recommended for clarity.</scope>\n\t<description>Required.\
+  \ Use the imperative mood (e.g., \"add\", not \"added\").</description>\n\t<body>Optional.\
+  \ Use for additional context.</body>\n\t<footer>Use for breaking changes or issue\
+  \ references.</footer>\n</validation>\n```\n\n### Final Step\n\n```xml\n<final-step>\n\
+  \t<cmd>git commit -m \"type(scope): description\"</cmd>\n\t<note>Replace with your\
+  \ constructed message. Include body and footer if needed.</note>\n</final-step>\n\
+  ```"
+source:
+  url: https://raw.githubusercontent.com/github/awesome-copilot/main/skills/conventional-commit/SKILL.md
+  format: agent-skills
+  license: null
+  compatibility: null
+  declared_allowed_tools: null
+  trust: unreviewed

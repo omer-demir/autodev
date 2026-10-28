@@ -1,4 +1,7 @@
-# Technical drawings
+---
+title: Technical drawings
+description: Catalog of editable AutoDev deployment, architecture, and trust-boundary diagrams.
+---
 
 The files in this directory are editable Draw.io sources. Open them in [diagrams.net](https://app.diagrams.net/), the Draw.io desktop application, or the VS Code Draw.io extension.
 

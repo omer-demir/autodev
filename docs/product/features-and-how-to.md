@@ -1,6 +1,13 @@
-# Features and how-to
+---
+title: Features and how-to
+description: Product capabilities and guides for using AutoDev
+ms.date: 2026-10-27
+ms.topic: how-to
+---
 
-## Product at a glance
+## Features and how-to
+
+### Product at a glance
 
 Autodev is a governed software-development workbench for running coding agents against real repositories. It separates model reasoning from execution authority: agents can propose tool calls, while deterministic policy, sandbox, workflow, identity, and approval layers decide what can happen.
 
@@ -11,10 +18,11 @@ Connect repository or empty workspace -> select promoted agent and model -> run 
 -> research/plan/implement/review -> inspect evidence -> approve or deny publication
 ```
 
-## Capability map
+### Capability map
 
 | Area                  | Capability                                                                                                   | State                |
 | --------------------- | ------------------------------------------------------------------------------------------------------------ | -------------------- |
+| Chat                  | Persistent conversations with selected agents, additive skills, optional repository context, and model choice | Implemented          |
 | Repository onboarding | Public GitHub URL, GitHub OAuth browsing, local checkout, or initialized empty Git workspace                 | Implemented          |
 | Task execution        | Change and read-only assessment modes with live steering                                                     | Implemented          |
 | Agent runtime         | Microsoft Agent Framework with GitHub Copilot, Ollama fallback, or configured Foundry Responses              | Implemented/optional |
@@ -31,9 +39,9 @@ Connect repository or empty workspace -> select promoted agent and model -> run 
 | Identity and tenancy  | Local or OIDC login, opaque sessions, membership UI, RBAC, actor-aware approvals, transport authorization    | Implemented/optional |
 | Interfaces            | Next.js UI, REST/OpenAPI, CLI, WebSocket invalidation, MCP Streamable HTTP and SSE                           | Implemented          |
 
-## Quick start
+### Quick start
 
-### Native development
+#### Native development
 
 Prerequisites are Python 3.11+, Node.js, npm, Git, and a reachable Docker daemon.
 
@@ -51,7 +59,7 @@ PYTHONPATH=apps/api:cli .venv/bin/python -m agentctl.main doctor
 curl --fail http://localhost:8000/api/runtime
 ```
 
-### Compose
+#### Compose
 
 ```bash
 docker compose up --build --force-recreate
@@ -59,7 +67,7 @@ docker compose up --build --force-recreate
 
 Compose adds Prometheus, Tempo, Grafana, and the OpenTelemetry Collector. The API container needs Docker daemon access to create disposable task sandboxes.
 
-## Run a coding task
+### Run a coding task
 
 1. Open the dashboard and select **Connect repository**.
 2. Use a public GitHub URL, connect GitHub for private repositories, select a local checkout, or create an empty workspace.
@@ -77,7 +85,21 @@ For a product-discovery flow with no repository, create an **Empty workspace** a
 
 The original repository is not modified. Each task works in `.workspaces/TASK-NNN/repo`, mounted at `/workspace/project` in a Docker sandbox.
 
-## Understand the RPI loop
+### Chat
+
+1. Open **Chat** and enter a question to start a conversation. You can attach an image or file, or record audio and review its transcript before sending.
+2. Without a repository, AutoDev saves the conversation as chat history and sends it directly to the selected model. This chatbot mode does not create a task or workspace.
+3. Open **Advanced options** to choose a repository, agent, skill, or model. Agents and skills are optional in chatbot mode. If you select a repository, AutoDev creates a task and uses the existing governed workflow. A repository task uses the Base Agent when you do not select an agent.
+4. Repository changes run in an isolated workspace through governed tools. Policy-required actions pause for approval.
+5. Continue a saved conversation from **Recent chats**. Repository-backed chats link to task details, while repository-free chats remain in the chat interface.
+6. Assistant replies render formatted Markdown and syntax-highlighted code. Images and files returned by the selected model are saved with the message and can be opened or downloaded from chat history.
+7. Foundry chat sessions expose the provider's native image-generation tool. Images and files returned by either provider are saved with the assistant message.
+
+The **Sessions** page remains available for inspecting and continuing task-backed work sessions.
+
+The built-in **AutoDev Base Agent** is the default agent for repository tasks. In chatbot mode, choose an agent only when you want its instructions to guide the response.
+
+### Understand the RPI loop
 
 The built-in developer agent attaches five skills:
 
@@ -101,7 +123,7 @@ The skills guide model behavior, while the Python workflow records observed evid
 
 Instruction text cannot claim authority. Tool results, task events, diffs, test output, and scanner output remain the source of truth.
 
-## Bring your own skill
+### Bring your own skill
 
 1. Open **Agents & tools** at `/management`.
 2. In **Import agent or skill**, paste one of:
@@ -122,7 +144,7 @@ skills:
 
 Imported `allowed-tools` remains advisory provenance. It does not grant Workbench tools, capabilities, network access, or approval.
 
-## Bring your own agent
+### Bring your own agent
 
 1. Import a public `.agent.md` URL from `/management`.
 2. Review the generated local agent. Imports are forced to `draft` with:
@@ -135,7 +157,7 @@ Imported `allowed-tools` remains advisory provenance. It does not grant Workbenc
 5. Increment the version whenever behavior changes.
 6. Run static lint, then the complete behavioral promotion workflow described below.
 
-## Evaluate and promote an agent
+### Evaluate and promote an agent
 
 1. In `/management`, select the agent and evaluation suite.
 2. Run **Static declaration lint** for immediate capability and safety consistency. This does not execute the agent.
@@ -149,7 +171,7 @@ Imported `allowed-tools` remains advisory provenance. It does not grant Workbenc
 
 Changing the agent after dataset generation invalidates the dataset and requires a new one.
 
-## Govern capabilities
+### Govern capabilities
 
 An action executes only when the agent declaration grants it and the selected policy allows it. Explicit deny wins.
 
@@ -165,9 +187,11 @@ Typical decisions are:
 
 Use `/governance` to inspect effective policy and `/security` to run active capability probes. Treat policy edits as code changes because they become active for agents that reference them.
 
-## Configure model providers
+### Configure model providers
 
-The default is GitHub Copilot with `auto` model selection and Ollama fallback.
+The application defaults to GitHub Copilot with `auto` model selection and
+Ollama fallback. The development container overrides this with the configured
+Microsoft Foundry `gpt-6-sol` deployment.
 
 Common settings:
 
@@ -179,15 +203,19 @@ WORKBENCH_MODEL_FALLBACK_NAME=gemma4:e2b
 WORKBENCH_OLLAMA_URL=http://127.0.0.1:11434
 ```
 
-Set `WORKBENCH_MODEL_PROVIDER=foundry` plus `WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT` and Azure credentials to use Foundry Responses. Provider failure opens a recovery decision: retry, change Copilot model, use fallback, or cancel.
+Set `WORKBENCH_MODEL_PROVIDER=foundry`,
+`WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT`, and `WORKBENCH_FOUNDRY_MODEL` to use
+Foundry Responses. In the development container, run `az login`; the API's
+`DefaultAzureCredential` uses the Azure CLI identity. Provider failure opens a
+recovery decision: retry, change model, use fallback, or cancel.
 
-## Configure sandbox providers
+### Configure sandbox providers
 
-### Docker
+#### Docker
 
 Docker is the default. Sandboxes use a task-only bind mount, dropped Linux capabilities, `no-new-privileges`, resource limits, and no network by default. Governed dependency installation can receive temporary bridge access and is disconnected afterward.
 
-### Azure dynamic sessions
+#### Azure dynamic sessions
 
 Deploy the supplied Bicep and custom image, grant the API workload identity the **Azure ContainerApps Session Executor** role, then configure:
 
@@ -200,7 +228,7 @@ WORKBENCH_AZURE_SESSION_POOL_PROFILE=python-hyperv-2cpu-2gi-no-egress
 
 The control plane imports the worktree before a command, exports changes afterward, and rejects concurrent host modification using fingerprints.
 
-## Identity, organizations, and RBAC
+### Identity, organizations, and RBAC
 
 Local mode provisions a local administrator and organization. OIDC browser login uses authorization code with PKCE, validates the ID token against the configured issuer, audience, and JWKS, and creates an opaque HttpOnly server-side session. API and external MCP clients may continue to use bearer tokens. Membership and role are resolved on each request so revocation takes effect without waiting for session expiry.
 
@@ -215,7 +243,7 @@ Built-in roles are:
 
 Set `X-Organization-ID` for bearer-token requests when one identity belongs to multiple organizations. Browser sessions bind to the organization selected during login. REST, WebSocket, MCP, task, evaluation, marketplace, and approval operations are scoped to the active organization. Admins manage memberships at `/admin`.
 
-## Continue sessions and connect MCP clients
+### Continue sessions and connect MCP clients
 
 The Sessions page exposes persisted task history and continuation from retained worktrees. The same session service backs:
 
@@ -226,7 +254,7 @@ The Sessions page exposes persisted task history and continuation from retained 
 
 Continuation is accepted only when the previous run is terminal, no approval is pending, and any replacement agent is promoted.
 
-## Observe and troubleshoot
+### Observe and troubleshoot
 
 Use these surfaces in order:
 
@@ -248,7 +276,7 @@ npm run lint --workspace apps/web
 npm run build --workspace apps/web
 ```
 
-## Security invariants
+### Security invariants
 
 - Repository content, imported instructions, and model output are untrusted.
 - The model is not an authorization boundary.

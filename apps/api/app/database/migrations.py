@@ -8,6 +8,7 @@ def create_db_and_tables() -> None:
     SQLModel.metadata.create_all(engine)
     migrations = {
         "project": {
+            "workspace_only": "BOOLEAN NOT NULL DEFAULT FALSE",
             "source_type": "TEXT NOT NULL DEFAULT 'local'",
             "repository_url": "TEXT",
             "default_branch": "TEXT",
@@ -18,11 +19,23 @@ def create_db_and_tables() -> None:
         },
         "task": {
             "model_name": "TEXT",
+            "selected_agents": "JSON NOT NULL DEFAULT '[]'",
+            "additional_skills": "JSON NOT NULL DEFAULT '[]'",
+            "is_chat": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "approval_strategy": "TEXT NOT NULL DEFAULT 'agent_policy'",
             "mode": "TEXT NOT NULL DEFAULT 'change'",
             "verbose_logging": "BOOLEAN NOT NULL DEFAULT FALSE",
             "workflow_id": "TEXT NOT NULL DEFAULT 'sdlc'",
             "organization_id": "TEXT NOT NULL DEFAULT 'local'",
             "created_by": "TEXT",
+        },
+        "chatturn": {
+            "model_provider": "TEXT",
+            "model_name": "TEXT",
+            "input_tokens": "INTEGER",
+            "output_tokens": "INTEGER",
+            "estimated_cost_usd": "REAL",
+            "cost_note": "TEXT",
         },
         "approval": {
             "organization_id": "TEXT NOT NULL DEFAULT 'local'",

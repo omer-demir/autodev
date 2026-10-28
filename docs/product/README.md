@@ -1,6 +1,9 @@
-# Product documentation
+---
+title: Product documentation
+description: Index of AutoDev product capabilities, workflows, and planning documents.
+---
 
-This pack describes Autodev as implemented in the repository on October 6, 2026.
+This pack describes AutoDev product capabilities and supporting product-planning material.
 
 | Document                                                              | Audience                           | Purpose                                                       |
 | --------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------- |

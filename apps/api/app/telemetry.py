@@ -80,6 +80,27 @@ def _call_cost(
     return round(cost, 8), str(rate.get("source") or "Configured rate card estimate")
 
 
+def estimate_model_call_cost(
+    provider: str,
+    model: str,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    *,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
+    discovered_pricing: dict[str, dict[str, Any]] | None = None,
+) -> tuple[float | None, str]:
+    return _call_cost(
+        _pricing(discovered_pricing),
+        provider,
+        model,
+        input_tokens,
+        output_tokens,
+        cache_read_tokens,
+        cache_write_tokens,
+    )
+
+
 def _phase_timings(events: list[Event]) -> list[dict[str, Any]]:
     if len(events) < 2:
         return []

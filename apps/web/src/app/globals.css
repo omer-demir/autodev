@@ -1,5 +1,8 @@
 @import "tailwindcss";
 
+@source "../../node_modules/streamdown/dist/*.js";
+@source "../../node_modules/@streamdown/code/dist/*.js";
+
 :root {
   --background: #080b11;
   --foreground: #e8edf5;
@@ -44,3 +47,28 @@ button:disabled { cursor: not-allowed; opacity: .5; }
     linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px);
   background-size: 32px 32px;
 }
+
+.chat-markdown > :first-child { margin-top: 0; }
+.chat-markdown > :last-child { margin-bottom: 0; }
+.chat-markdown p { margin: .55rem 0; overflow-wrap: anywhere; }
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 { margin: 1.1rem 0 .45rem; font-weight: 600; line-height: 1.35; }
+.chat-markdown h1 { font-size: 1.35rem; }
+.chat-markdown h2 { font-size: 1.2rem; }
+.chat-markdown h3,
+.chat-markdown h4 { font-size: 1.05rem; }
+.chat-markdown ul,
+.chat-markdown ol { margin: .65rem 0; padding-left: 1.5rem; }
+.chat-markdown ul { list-style: disc; }
+.chat-markdown ol { list-style: decimal; }
+.chat-markdown li { margin: .2rem 0; padding-left: .15rem; }
+.chat-markdown blockquote { margin: .75rem 0; border-left: 2px solid #5eead4; padding-left: .8rem; color: #aab6c8; }
+.chat-markdown a { color: #5eead4; text-decoration: underline; text-underline-offset: 3px; overflow-wrap: anywhere; }
+.chat-markdown pre { max-width: 100%; overflow-x: auto; border: 1px solid rgba(255,255,255,.08); border-radius: .65rem; background: rgba(0,0,0,.35); }
+.chat-markdown :not(pre) > code { border-radius: .3rem; background: rgba(255,255,255,.07); padding: .12rem .3rem; font-family: var(--font-geist-mono), monospace; font-size: .9em; }
+.chat-markdown table { display: block; max-width: 100%; overflow-x: auto; border-collapse: collapse; }
+.chat-markdown th,
+.chat-markdown td { border: 1px solid rgba(255,255,255,.12); padding: .35rem .55rem; text-align: left; }
+.chat-markdown th { background: rgba(255,255,255,.05); font-weight: 600; }

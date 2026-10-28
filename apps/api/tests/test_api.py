@@ -579,6 +579,7 @@ def test_publication_waits_for_explicit_scoped_approval(tmp_path):
             approval = client.post(
                 f"/api/approvals/{payload['approval_id']}/approve"
             )
+            task_detail = client.get(f"/api/tasks/{task_id}")
 
     assert approval.status_code == 200
     assert approval.json()["scope"] == {
@@ -586,6 +587,8 @@ def test_publication_waits_for_explicit_scoped_approval(tmp_path):
         "create_pull_request": True,
         "actions": ["git.push", "pull_request.create"],
     }
+    assert task_detail.status_code == 200
+    assert task_detail.json()["approval"] is None
     complete.assert_awaited_once_with(
         task_id, "feature/governed", True, "local-admin"
     )

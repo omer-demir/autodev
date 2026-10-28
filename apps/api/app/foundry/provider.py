@@ -31,6 +31,7 @@ class FoundryResponsesProvider:
         model: str,
         reasoning_summary: str | None = None,
         tool_schemas: list[dict[str, Any]] | None = None,
+        image_generation_deployment: str | None = None,
         token_provider: Callable[[], Awaitable[str]] | None = None,
         client: httpx.AsyncClient | None = None,
     ) -> None:
@@ -41,6 +42,20 @@ class FoundryResponsesProvider:
         self.model = model
         self.reasoning_summary = reasoning_summary
         self.tool_schemas = tool_schemas or []
+        self.image_generation_deployment = (
+            image_generation_deployment.strip()
+            if image_generation_deployment and image_generation_deployment.strip()
+            else None
+        )
+        self.uses_image_generation = any(
+            tool.get("type") == "image_generation"
+            for tool in self.tool_schemas
+        )
+        if self.uses_image_generation and not self.image_generation_deployment:
+            raise RuntimeError(
+                "Microsoft Foundry image generation requires "
+                "WORKBENCH_FOUNDRY_IMAGE_GENERATION_DEPLOYMENT"
+            )
         self._token_provider = token_provider or self._azure_token
         self._client = client or httpx.AsyncClient(timeout=300)
 
@@ -62,7 +77,8 @@ class FoundryResponsesProvider:
 
     async def _request(self, body: dict[str, Any]) -> dict[str, Any]:
         token = await self._token_provider()
-        response = await self._client.post(
+        request = self._client.build_request(
+            "POST",
             self.endpoint,
             headers={
                 "Authorization": f"Bearer {token}",
@@ -70,6 +86,11 @@ class FoundryResponsesProvider:
             },
             json=body,
         )
+        if self.uses_image_generation and self.image_generation_deployment:
+            request.headers["x-ms-oai-image-generation-deployment"] = (
+                self.image_generation_deployment
+            )
+        response = await self._client.send(request)
         try:
             payload = response.json()
         except ValueError:
@@ -83,6 +104,113 @@ class FoundryResponsesProvider:
                 "Invalid Foundry response",
             )
         return payload
+
+    async def _request_stream(
+        self,
+        body: dict[str, Any],
+        on_text_delta: Callable[[str], Awaitable[None]],
+    ) -> dict[str, Any]:
+        token = await self._token_provider()
+        request = self._client.build_request(
+            "POST",
+            self.endpoint,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+                "Accept": "text/event-stream",
+            },
+            json={**body, "stream": True},
+        )
+        if self.uses_image_generation and self.image_generation_deployment:
+            request.headers["x-ms-oai-image-generation-deployment"] = (
+                self.image_generation_deployment
+            )
+        response = await self._client.send(request, stream=True)
+        try:
+            if response.is_error:
+                await response.aread()
+                try:
+                    payload = response.json()
+                except ValueError:
+                    payload = {}
+                raise foundry_error(response.status_code, payload)
+
+            content_type = response.headers.get("content-type", "")
+            if "text/event-stream" not in content_type.casefold():
+                await response.aread()
+                try:
+                    payload = response.json()
+                except ValueError as exc:
+                    raise FoundryApiError(
+                        response.status_code,
+                        "invalid_response",
+                        "Invalid streamed Foundry response",
+                    ) from exc
+                if not isinstance(payload, dict):
+                    raise FoundryApiError(
+                        response.status_code,
+                        "invalid_response",
+                        "Invalid streamed Foundry response",
+                    )
+                text = response_text(payload)
+                if text:
+                    await on_text_delta(text)
+                return payload
+
+            final_response: dict[str, Any] | None = None
+
+            async def consume_event(data: str) -> None:
+                nonlocal final_response
+                if data == "[DONE]":
+                    return
+                try:
+                    event = json.loads(data)
+                except ValueError as exc:
+                    raise FoundryApiError(
+                        response.status_code,
+                        "invalid_stream",
+                        "Microsoft Foundry returned an invalid streaming event",
+                    ) from exc
+                if not isinstance(event, dict):
+                    return
+                event_type = event.get("type")
+                if event_type == "response.output_text.delta":
+                    delta = event.get("delta")
+                    if isinstance(delta, str) and delta:
+                        await on_text_delta(delta)
+                elif event_type in {"response.completed", "response.incomplete"}:
+                    value = event.get("response")
+                    if isinstance(value, dict):
+                        final_response = value
+                elif event_type in {"response.failed", "error"}:
+                    value = event.get("response")
+                    error = value.get("error") if isinstance(value, dict) else None
+                    if not isinstance(error, dict):
+                        error = event.get("error")
+                    raise foundry_error(
+                        response.status_code if response.status_code >= 400 else 502,
+                        {"error": error if isinstance(error, dict) else {}},
+                    )
+
+            data_lines: list[str] = []
+            async for line in response.aiter_lines():
+                if not line:
+                    if data_lines:
+                        await consume_event("\n".join(data_lines))
+                        data_lines.clear()
+                elif line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+            if data_lines:
+                await consume_event("\n".join(data_lines))
+            if final_response is None:
+                raise FoundryApiError(
+                    response.status_code,
+                    "incomplete_stream",
+                    "Microsoft Foundry ended the stream without a completed response",
+                )
+            return final_response
+        finally:
+            await response.aclose()
 
     async def probe_content_filter(self) -> dict[str, Any]:
         body = {
@@ -121,8 +249,11 @@ class FoundryResponsesProvider:
         verbose_logging: bool,
         steering_provider: SteeringProvider | None = None,
         seen_steering: set[str] | None = None,
+        input_messages: list[dict[str, Any]] | None = None,
+        on_response: Callable[[dict[str, Any]], None] | None = None,
+        on_text_delta: Callable[[str], Awaitable[None]] | None = None,
     ) -> str:
-        request_input: list[dict[str, Any]] = [
+        request_input: list[dict[str, Any]] = input_messages or [
             {"role": "user", "content": prompt}
         ]
         previous_response_id: str | None = None
@@ -132,9 +263,10 @@ class FoundryResponsesProvider:
                 "model": self.model,
                 "instructions": instructions,
                 "input": request_input,
-                "tools": self.tool_schemas,
-                "tool_choice": "auto",
             }
+            if self.tool_schemas:
+                body["tools"] = self.tool_schemas
+                body["tool_choice"] = "auto"
             if previous_response_id:
                 body["previous_response_id"] = previous_response_id
             if self.reasoning_summary:
@@ -148,7 +280,11 @@ class FoundryResponsesProvider:
                 {"provider": "foundry", "model": self.model},
             )
             try:
-                response = await self._request(body)
+                response = (
+                    await self._request_stream(body, on_text_delta)
+                    if on_text_delta
+                    else await self._request(body)
+                )
             except FoundryContentFilterError as exc:
                 await callback(
                     "model.guardrail_triggered",
@@ -165,6 +301,8 @@ class FoundryResponsesProvider:
                     },
                 )
                 raise
+            if on_response:
+                on_response(response)
             latency_ms = round((time.monotonic() - started) * 1000)
             response_usage = usage(response)
             await callback(

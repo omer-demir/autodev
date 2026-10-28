@@ -1,3 +1,4 @@
+from .chat import ChatAttachment, ChatConversation, ChatTurn
 from .evaluations import EvaluationDataset, EvaluationEvent, EvaluationRun
 from .identity import (
     AgentIdentityRecord,
@@ -19,6 +20,9 @@ __all__ = [
     "AgentIdentityRecord",
     "Approval",
     "BrowserSession",
+    "ChatAttachment",
+    "ChatConversation",
+    "ChatTurn",
     "Connector",
     "ConnectorCredential",
     "EvaluationDataset",

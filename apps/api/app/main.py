@@ -1,4 +1,6 @@
 import base64
+import binascii
+import asyncio
 import html
 import hashlib
 import json
@@ -9,14 +11,19 @@ import shutil
 import secrets
 import subprocess
 import time
+from uuid import uuid4
 from contextlib import asynccontextmanager
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote, urlencode
 
 import httpx
+from agent_framework import Content, Message as AgentFrameworkMessage
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
+from fastapi.encoders import jsonable_encoder
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from sqlalchemy import delete, func, or_
 from sqlmodel import Session, col, select
@@ -43,6 +50,9 @@ from .execution_queue import ExecutionConflict
 from .github_auth import github_credentials
 from .models import (
     Approval,
+    ChatAttachment,
+    ChatConversation,
+    ChatTurn,
     Connector,
     EvaluationRun,
     Event,
@@ -58,7 +68,12 @@ from .models import (
     WorkspaceRevision,
 )
 from .model_recovery import ModelRecoveryDecision, model_recovery_broker
-from .model_catalog import list_runtime_models, runtime_model_pricing
+from .model_catalog import (
+    list_provider_models,
+    list_runtime_models,
+    runtime_model_pricing,
+)
+from .model_catalog.generation import ChatUsage, generate_chat_response
 from .mcp_gateway import mcp_gateway_app, mcp_gateway_lifespan
 from .observability import (
     configure_logging,
@@ -86,6 +101,9 @@ from .registry import (
     list_definitions,
 )
 from .schemas import (
+    ChatAttachmentCreate,
+    ChatCreate,
+    ChatMessageCreate,
     GitHubUrlConnect,
     ProjectCreate,
     RuntimeElevationRequest,
@@ -105,7 +123,7 @@ from .session_service import (
     get_durable_session,
     list_durable_sessions,
 )
-from .telemetry import build_task_telemetry
+from .telemetry import build_task_telemetry, estimate_model_call_cost
 from .workflow import (
     complete_approval,
     complete_publication,
@@ -633,7 +651,9 @@ def list_projects(
     principal: Principal = Depends(require_permission("read")),
 ):
     return session.exec(select(Project).where(
-        Project.organization_id == principal.organization_id).order_by(Project.name)).all()
+        Project.organization_id == principal.organization_id,
+        Project.workspace_only.is_(False),
+    ).order_by(Project.name)).all()
 
 
 @app.post("/api/projects", response_model=Project, status_code=201)
@@ -923,6 +943,8 @@ def get_task(
     if not task:
         raise HTTPException(404, "Task not found")
     project = session.get(Project, task.project_id)
+    if project and project.workspace_only:
+        project = None
     events = session.exec(
         select(Event).where(Event.task_id ==
                             task_id).order_by(Event.created_at)
@@ -2114,6 +2136,868 @@ def list_sessions(
     principal: Principal = Depends(require_permission("read")),
 ) -> list[dict]:
     return list_durable_sessions(session, principal)
+
+
+def _chat_summary(task: Task, project: Project | None = None) -> dict:
+    return {
+        "id": task.id,
+        "task_id": task.id,
+        "title": task.title,
+        "status": task.status,
+        "project_id": (
+            None if project is None or project.workspace_only else project.id
+        ),
+        "agent_ids": task.selected_agents or [task.agent_id],
+        "skill_ids": task.additional_skills or [],
+        "model_name": task.model_name,
+        "approval_strategy": task.approval_strategy,
+        "updated_at": task.updated_at,
+    }
+
+
+@app.get("/api/chats/options")
+async def chat_options(
+    principal: Principal = Depends(require_permission("read")),
+) -> dict:
+    agents = [
+        {
+            "id": item["id"],
+            "name": item["data"].get("name", item["id"]),
+            "description": item["data"].get("description", ""),
+            "skills": item["data"].get("skills", []),
+        }
+        for item in list_definitions("agents")
+        if agent_can_execute(item["data"])
+    ]
+    skills = [
+        {
+            "id": item["id"],
+            "name": item["data"].get("name", item["id"]),
+            "description": item["data"].get("description", ""),
+        }
+        for item in list_definitions("skills")
+    ]
+    try:
+        models = await list_runtime_models()
+    except RuntimeError as exc:
+        raise HTTPException(503, f"Chat model catalog unavailable: {exc}") from exc
+    return {
+        "agents": agents,
+        "skills": skills,
+        "models": models,
+        "approval_strategies": [{
+            "id": "agent_policy",
+            "label": "Selected agent and policy rules",
+        }],
+    }
+
+
+@app.get("/api/chats")
+def list_chats(
+    limit: int = Query(default=50, ge=1, le=100),
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("read")),
+) -> dict:
+    tasks = session.exec(
+        select(Task).where(
+            Task.organization_id == principal.organization_id,
+            Task.is_chat.is_(True),
+        ).order_by(col(Task.updated_at).desc()).limit(limit)
+    ).all()
+    items = [
+        _chat_summary(task, session.get(Project, task.project_id))
+        for task in tasks
+    ]
+    conversations = session.exec(select(ChatConversation).where(
+        ChatConversation.organization_id == principal.organization_id
+    ).order_by(col(ChatConversation.updated_at).desc()).limit(limit)).all()
+    items.extend(_conversation_summary(item) for item in conversations)
+    items.sort(key=lambda item: item["updated_at"], reverse=True)
+    return {"items": items[:limit]}
+
+
+def _short_chat_title(message: str) -> str:
+    title = re.split(r"(?<=[.!?])\s+", " ".join(message.split()), maxsplit=1)[0]
+    title = title.strip(" .!?")
+    for prefix in (
+        "i want you to ",
+        "i would like you to ",
+        "i'd like you to ",
+        "could you ",
+        "can you ",
+        "please ",
+    ):
+        if title.casefold().startswith(prefix):
+            title = title[len(prefix):].strip()
+            break
+    if len(title) <= 29:
+        return title or "Chat request"
+    shortened = title[:26].rsplit(" ", 1)[0].rstrip(" ,;:")
+    if not shortened:
+        shortened = title[:26].rstrip(" ,;:")
+    return f"{shortened}..."
+
+
+_CHAT_ATTACHMENT_TYPES = {
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+    "audio/flac",
+    "audio/mp3",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+    "audio/wav",
+    "audio/webm",
+    "audio/x-wav",
+    "application/pdf",
+}
+_MAX_CHAT_ATTACHMENT_BYTES = 10 * 1024 * 1024
+_MAX_CHAT_ATTACHMENTS_BYTES = 20 * 1024 * 1024
+
+
+def _decode_chat_uploads(
+    uploads: list[ChatAttachmentCreate],
+) -> list[tuple[str, str, bytes]]:
+    decoded: list[tuple[str, str, bytes]] = []
+    total_size = 0
+    for upload in uploads:
+        if upload.media_type not in _CHAT_ATTACHMENT_TYPES:
+            raise HTTPException(
+                422, f"Unsupported chat attachment type: {upload.media_type}"
+            )
+        try:
+            data = base64.b64decode(upload.data, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(422, "Chat attachment data must be valid base64") from exc
+        if not data or len(data) > _MAX_CHAT_ATTACHMENT_BYTES:
+            raise HTTPException(413, "Each chat attachment must be 10 MiB or smaller")
+        total_size += len(data)
+        if total_size > _MAX_CHAT_ATTACHMENTS_BYTES:
+            raise HTTPException(413, "Chat attachments must total 20 MiB or less")
+        name = upload.name.replace("\\", "/").rsplit("/", 1)[-1].strip()
+        if not name:
+            raise HTTPException(422, "Chat attachment filename is required")
+        decoded.append((name, upload.media_type, data))
+    return decoded
+
+
+def _persist_chat_attachments(
+    session: Session,
+    turn: ChatTurn,
+    attachments: list[tuple[str, str, bytes]],
+) -> None:
+    for name, media_type, data in attachments:
+        session.add(ChatAttachment(
+            id=uuid4().hex,
+            message_id=turn.id,
+            name=name,
+            media_type=media_type,
+            data=data,
+        ))
+
+
+def _conversation_summary(conversation: ChatConversation) -> dict[str, Any]:
+    return {
+        "id": conversation.id,
+        "task_id": conversation.id,
+        "title": conversation.title,
+        "status": conversation.status,
+        "project_id": None,
+        "agent_ids": conversation.selected_agents,
+        "skill_ids": conversation.additional_skills,
+        "model_name": conversation.model_name,
+        "model_provider": conversation.model_provider,
+        "approval_strategy": "agent_policy",
+        "updated_at": conversation.updated_at,
+    }
+
+
+def _conversation_detail(
+    session: Session, conversation: ChatConversation
+) -> dict[str, Any]:
+    turns = session.exec(select(ChatTurn).where(
+        ChatTurn.chat_id == conversation.id
+    ).order_by(ChatTurn.created_at, ChatTurn.id)).all()
+    messages = []
+    for turn in turns:
+        attachments = session.exec(select(ChatAttachment).where(
+            ChatAttachment.message_id == turn.id
+        ).order_by(ChatAttachment.created_at)).all()
+        messages.append({
+            "id": turn.id,
+            "task_id": conversation.id,
+            "role": turn.role,
+            "content": turn.content,
+            "created_at": turn.created_at,
+            "model_provider": turn.model_provider,
+            "model_name": turn.model_name,
+            "input_tokens": turn.input_tokens,
+            "output_tokens": turn.output_tokens,
+            "estimated_cost_usd": turn.estimated_cost_usd,
+            "cost_note": turn.cost_note,
+            "attachments": [{
+                "id": attachment.id,
+                "name": attachment.name,
+                "media_type": attachment.media_type,
+                "url": (
+                    f"/api/chats/{quote(conversation.id, safe='')}/attachments/"
+                    f"{quote(attachment.id, safe='')}"
+                ),
+            } for attachment in attachments],
+        })
+    return {
+        "chat": _conversation_summary(conversation),
+        "task": None,
+        "messages": messages,
+        "events": [],
+        "error": conversation.last_error,
+    }
+
+
+def _conversation_prompt_messages(
+    session: Session, conversation: ChatConversation
+) -> list[AgentFrameworkMessage]:
+    turns = session.exec(select(ChatTurn).where(
+        ChatTurn.chat_id == conversation.id
+    ).order_by(ChatTurn.created_at, ChatTurn.id)).all()
+    messages: list[AgentFrameworkMessage] = []
+    for turn in turns:
+        contents: list[Content] = []
+        if turn.content:
+            contents.append(Content.from_text(turn.content))
+        attachments = session.exec(select(ChatAttachment).where(
+            ChatAttachment.message_id == turn.id
+        ).order_by(ChatAttachment.created_at)).all()
+        for attachment in attachments:
+            contents.append(Content.from_data(
+                attachment.data,
+                attachment.media_type,
+                additional_properties={"filename": attachment.name},
+            ))
+        messages.append(AgentFrameworkMessage(turn.role, contents))
+    return messages
+
+
+def _conversation_instructions(
+    agent_ids: list[str], skill_ids: list[str]
+) -> str:
+    parts = [
+        (
+        "You are a helpful assistant in AutoDev Chat. Answer directly and accurately. "
+        "There is no repository workspace or filesystem access in this conversation. "
+        "Use attached images, audio, and files as input when the selected model supports them. "
+        "When audio is supplied for transcription, return only the spoken words. "
+        "When a user asks for an image, use a native image-generation tool if one is available. "
+        "Do not replace an image with an HTML page or claim an image is attached unless it is. "
+        "When a web-search tool is available, use it for current information and cite sources. "
+        "For text-based downloadable files, include a fenced block in the form "
+        "`file filename.ext` followed by its exact contents; AutoDev attaches that file."
+        )
+    ]
+    for agent_id in agent_ids:
+        definition = get_definition(
+            "agents", agent_id.removeprefix("did:local:")
+        )["data"]
+        instructions = str(
+            definition.get("instructions") or definition.get("description") or ""
+        ).strip()
+        if instructions:
+            parts.append(f"Selected agent instructions:\n{instructions[:8000]}")
+    for skill_id in skill_ids:
+        definition = get_definition("skills", skill_id)["data"]
+        instructions = str(
+            definition.get("instructions") or definition.get("description") or ""
+        ).strip()
+        if instructions:
+            parts.append(f"Selected skill {skill_id}:\n{instructions[:8000]}")
+    return "\n\n".join(parts)
+
+
+async def _run_conversation_turn(
+    session: Session,
+    conversation: ChatConversation,
+    on_text_delta: Callable[[str], Awaitable[None]] | None = None,
+) -> dict[str, Any]:
+    conversation.status = "PROCESSING"
+    conversation.last_error = None
+    conversation.updated_at = datetime.now(UTC)
+    session.add(conversation)
+    session.commit()
+    messages = _conversation_prompt_messages(session, conversation)
+    usage: ChatUsage | None = None
+
+    def capture_usage(value: ChatUsage) -> None:
+        nonlocal usage
+        usage = value
+
+    try:
+        text, output_attachments = await generate_chat_response(
+            messages=messages,
+            instructions=_conversation_instructions(
+                conversation.selected_agents,
+                conversation.additional_skills,
+            ),
+            model=conversation.model_name or "",
+            provider=conversation.model_provider,
+            on_text_delta=on_text_delta,
+            on_usage=capture_usage,
+        )
+        if not text.strip() and not output_attachments:
+            raise RuntimeError("The selected model returned no chat response")
+    except asyncio.CancelledError:
+        conversation.status = "FAILED"
+        conversation.last_error = "The chat response stream was interrupted"
+        conversation.updated_at = datetime.now(UTC)
+        session.add(conversation)
+        session.commit()
+        raise
+    except Exception as exc:
+        conversation.status = "FAILED"
+        conversation.last_error = str(exc)[:1000]
+        conversation.updated_at = datetime.now(UTC)
+        session.add(conversation)
+        session.commit()
+        return _conversation_detail(session, conversation)
+
+    usage = usage or ChatUsage(
+        provider=conversation.model_provider,
+        model=conversation.model_name or "",
+        input_tokens=None,
+        output_tokens=None,
+    )
+    estimated_cost, cost_note = estimate_model_call_cost(
+        usage.provider,
+        usage.model,
+        usage.input_tokens,
+        usage.output_tokens,
+        cache_read_tokens=usage.cache_read_tokens,
+        cache_write_tokens=usage.cache_write_tokens,
+    )
+    response = ChatTurn(
+        chat_id=conversation.id,
+        role="assistant",
+        content=text,
+        model_provider=usage.provider,
+        model_name=usage.model,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        estimated_cost_usd=estimated_cost,
+        cost_note=cost_note,
+    )
+    session.add(response)
+    session.flush()
+    for item in output_attachments:
+        try:
+            data = base64.b64decode(item["data"], validate=True)
+        except (KeyError, binascii.Error, ValueError):
+            continue
+        media_type = item.get("media_type", "")
+        name = item.get("name", "generated-file")
+        if (
+            not data
+            or len(data) > _MAX_CHAT_ATTACHMENT_BYTES
+            or not media_type
+        ):
+            continue
+        session.add(ChatAttachment(
+            id=uuid4().hex,
+            message_id=response.id,
+            name=name.replace("\\", "/").rsplit("/", 1)[-1][:255],
+            media_type=media_type,
+            data=data,
+        ))
+    conversation.status = "DONE"
+    conversation.updated_at = datetime.now(UTC)
+    session.add(conversation)
+    session.commit()
+    return _conversation_detail(session, conversation)
+
+
+def _stream_conversation_turn(
+    session: Session,
+    conversation: ChatConversation,
+) -> StreamingResponse:
+    async def stream_events():
+        queue: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
+
+        async def on_text_delta(text: str) -> None:
+            await queue.put(("delta", text))
+
+        async def run_turn() -> None:
+            try:
+                result = await _run_conversation_turn(
+                    session, conversation, on_text_delta=on_text_delta
+                )
+                await queue.put(("complete", result))
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception("Chat response stream failed")
+                await queue.put(("error", str(exc)[:1000]))
+
+        task = asyncio.create_task(run_turn())
+        try:
+            while True:
+                kind, value = await queue.get()
+                if kind == "delta":
+                    event_data = {"text": value}
+                    event_name = "delta"
+                elif kind == "complete":
+                    event_data = jsonable_encoder(value)
+                    event_name = "complete"
+                else:
+                    event_data = {"message": value}
+                    event_name = "error"
+                yield (
+                    f"event: {event_name}\n"
+                    f"data: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                )
+                if kind in {"complete", "error"}:
+                    await task
+                    break
+        finally:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+
+    return StreamingResponse(
+        stream_events(),
+        status_code=202,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/api/chats", status_code=202, response_model=None)
+async def create_chat(
+    payload: ChatCreate,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("task.create")),
+    stream: bool = Query(default=False),
+) -> Any:
+    project = None
+    if payload.project_id is not None:
+        project = session.exec(select(Project).where(
+            Project.id == payload.project_id,
+            Project.organization_id == principal.organization_id,
+            Project.workspace_only.is_(False),
+        )).first()
+        if not project:
+            raise HTTPException(404, "Project not found")
+
+    selected_agent_ids = payload.agent_ids
+    if project is not None and not selected_agent_ids:
+        selected_agent_ids = ["did:local:base"]
+    definitions: dict[str, dict] = {}
+    identities: dict[str, Any] = {}
+    for agent_id in selected_agent_ids:
+        try:
+            definition = get_definition(
+                "agents", agent_id.removeprefix("did:local:")
+            )["data"]
+        except RegistryError as exc:
+            raise HTTPException(422, str(exc)) from exc
+        if not agent_can_execute(definition):
+            raise HTTPException(
+                409,
+                f"Agent {agent_id} must be promoted or have an administrator-approved "
+                "evaluation bypass before it can run chats",
+            )
+        definitions[agent_id] = definition
+        if project is not None:
+            try:
+                identities[agent_id] = agent_identity_service.enroll(
+                    session, agent_id.removeprefix("did:local:"), definition, principal
+                )
+                agent_identity_service.verify(
+                    session,
+                    agent_id.removeprefix("did:local:"),
+                    principal.organization_id,
+                    definition,
+                )
+            except AgentIdentityError as exc:
+                raise HTTPException(409, str(exc)) from exc
+
+    for skill_id in payload.skill_ids:
+        try:
+            get_definition("skills", skill_id)
+        except RegistryError as exc:
+            raise HTTPException(422, str(exc)) from exc
+
+    if project is None:
+        uploads = _decode_chat_uploads(payload.attachments)
+        try:
+            available_models = await list_runtime_models()
+        except RuntimeError as exc:
+            raise HTTPException(503, f"Chat model catalog unavailable: {exc}") from exc
+        matching_models = [
+            item for item in available_models
+            if payload.model_provider is None
+            or item.get("provider") == payload.model_provider.casefold()
+        ]
+        model = next(
+            (item for item in matching_models
+             if item.get("name") == payload.model_name),
+            None,
+        ) if payload.model_name else (
+            matching_models[0] if matching_models else None
+        )
+        if not model:
+            raise HTTPException(
+                422 if payload.model_name else 503,
+                "The selected chat model is unavailable"
+                if payload.model_name else "No chat models are available",
+            )
+        message = payload.message.strip()
+        if not message and uploads:
+            message = "Please help me with the attached media."
+        chat_id = f"CHAT-{uuid4().hex}"
+        title_source = payload.message.strip() or uploads[0][0]
+        conversation = ChatConversation(
+            id=chat_id,
+            title=(payload.title.strip() if payload.title else "")
+            or _short_chat_title(title_source),
+            status="PROCESSING",
+            selected_agents=selected_agent_ids,
+            additional_skills=payload.skill_ids,
+            model_name=str(model.get("name") or ""),
+            model_provider=str(model.get("provider") or ""),
+            organization_id=principal.organization_id,
+            created_by=principal.user_id,
+        )
+        session.add(conversation)
+        turn = ChatTurn(
+            chat_id=chat_id,
+            role="user",
+            content=message,
+        )
+        session.add(turn)
+        session.flush()
+        _persist_chat_attachments(session, turn, uploads)
+        session.commit()
+        if stream:
+            return _stream_conversation_turn(session, conversation)
+        result = await _run_conversation_turn(session, conversation)
+        result["status"] = (
+            "completed" if result["chat"]["status"] == "DONE" else "failed"
+        )
+        result["execution_job_id"] = None
+        return result
+
+    existing_ids = session.exec(select(Task.id)).all()
+    if payload.model_provider:
+        raise HTTPException(
+            422,
+            "Provider selection is supported for repository-free chats only",
+        )
+    numeric_ids = (
+        int(value.removeprefix("TASK-"))
+        for value in existing_ids
+        if value.startswith("TASK-") and value.removeprefix("TASK-").isdigit()
+    )
+    task_id = f"TASK-{max(numeric_ids, default=0) + 1:03d}"
+    stage_ids = [
+        f"agent-{index}" for index in range(1, len(selected_agent_ids) + 1)
+    ]
+    stages = []
+    for index, (agent_id, stage_id) in enumerate(
+        zip(selected_agent_ids, stage_ids, strict=True)
+    ):
+        output_id = f"{stage_id}-handoff"
+        previous_output = f"{stage_ids[index - 1]}-handoff" if index else None
+        stages.append({
+            "id": stage_id,
+            "agent": agent_id,
+            "responsibility": (
+                "Collaborate on the user's chat request. Review the shared repository "
+                "and prior agent handoffs, contribute the next useful implementation "
+                f"or review step. Agent context: "
+                f"{str(definitions[agent_id].get('description', ''))[:500]}"
+            ),
+            "depends_on": [stage_ids[index - 1]] if index else [],
+            "inputs": ["request", "workspace"] + ([previous_output] if previous_output else []),
+            "outputs": [output_id],
+            "handoff": {"include": ["summary", "artifacts"]},
+        })
+    workflow = {
+        "name": "Collaborative chat",
+        "version": "1",
+        "default_agent": selected_agent_ids[0],
+        "orchestration": {"mode": "sequential"},
+        "stages": stages,
+    }
+    task = Task(
+        id=task_id,
+        project_id=project.id,
+        title=(payload.title.strip() if payload.title else "")
+        or _short_chat_title(payload.message),
+        description=payload.message,
+        workflow_id="chat-collaboration",
+        agent_id=selected_agent_ids[0],
+        model_name=payload.model_name,
+        selected_agents=selected_agent_ids,
+        additional_skills=payload.skill_ids,
+        is_chat=True,
+        approval_strategy=payload.approval_strategy,
+        organization_id=principal.organization_id,
+        created_by=principal.user_id,
+        branch=f"feature/{task_id.lower()}",
+    )
+    session.add(task)
+    session.flush()
+    session.add(Message(task_id=task_id, role="user", content=payload.message))
+    session.add(TaskArtifact(
+        task_id=task_id,
+        kind="workflow-definition",
+        content={
+            "workflow_id": task.workflow_id,
+            "workflow_version": workflow["version"],
+            "definition": workflow,
+        },
+    ))
+    session.commit()
+    session.refresh(task)
+    await record_event(
+        session,
+        task_id,
+        "task.created",
+        "Chat created",
+        task.title,
+        data={
+            "agent_ids": selected_agent_ids,
+            "skill_ids": payload.skill_ids,
+            "approval_strategy": payload.approval_strategy,
+        },
+    )
+    await record_event(
+        session,
+        task_id,
+        "agent.identity_verified",
+        "Selected agents verified",
+        ", ".join(identities[agent_id].did for agent_id in selected_agent_ids),
+        data={"agent_ids": selected_agent_ids},
+    )
+    try:
+        execution = schedule_task(task_id)
+    except ExecutionConflict as exc:
+        raise HTTPException(409, str(exc)) from exc
+    return {
+        "chat": _chat_summary(task, project),
+        "status": "started",
+        "execution_job_id": getattr(execution, "id", None),
+        "messages": session.exec(
+            select(Message).where(Message.task_id == task_id)
+            .order_by(Message.created_at)
+        ).all(),
+    }
+
+
+@app.get("/api/chats/{chat_id}")
+def get_chat(
+    chat_id: str,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("read")),
+) -> dict:
+    conversation = session.get(ChatConversation, chat_id)
+    if conversation and conversation.organization_id == principal.organization_id:
+        return _conversation_detail(session, conversation)
+    task = _scoped_task(session, chat_id, principal)
+    if not task or not task.is_chat:
+        raise HTTPException(404, "Chat not found")
+    project = session.get(Project, task.project_id)
+    messages = session.exec(
+        select(Message).where(Message.task_id == chat_id)
+        .order_by(Message.created_at)
+    ).all()
+    events = session.exec(
+        select(Event).where(Event.task_id == chat_id)
+        .order_by(Event.created_at)
+    ).all()
+    return {
+        "chat": _chat_summary(task, project),
+        "task": {
+            **task.model_dump(mode="json"),
+            "project_id": _chat_summary(task, project)["project_id"],
+        },
+        "messages": messages,
+        "events": events,
+    }
+
+
+@app.post(
+    "/api/chats/{chat_id}/messages", status_code=202, response_model=None
+)
+async def continue_chat(
+    chat_id: str,
+    payload: ChatMessageCreate,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("task.operate")),
+    stream: bool = Query(default=False),
+) -> Any:
+    conversation = session.get(ChatConversation, chat_id)
+    if conversation and conversation.organization_id == principal.organization_id:
+        uploads = _decode_chat_uploads(payload.attachments)
+        selected_provider = (
+            (payload.model_provider or "").casefold()
+            or conversation.model_provider
+            or get_settings().model_provider.casefold()
+        )
+        selected_model = payload.model_name or conversation.model_name or ""
+        if (
+            selected_provider != conversation.model_provider
+            or selected_model != conversation.model_name
+        ):
+            try:
+                available_models = await list_provider_models(selected_provider)
+            except RuntimeError as exc:
+                raise HTTPException(
+                    422, f"Selected chat model provider is unavailable: {exc}"
+                ) from exc
+            if not any(item.get("name") == selected_model for item in available_models):
+                raise HTTPException(
+                    422,
+                    "The selected model is not configured for the selected provider",
+                )
+            conversation.model_provider = selected_provider
+            conversation.model_name = selected_model
+            session.add(conversation)
+            session.commit()
+        content = payload.content.strip()
+        if not content and uploads:
+            content = "Please help me with the attached media."
+        turn = ChatTurn(
+            chat_id=conversation.id,
+            role="user",
+            content=content,
+        )
+        session.add(turn)
+        session.flush()
+        _persist_chat_attachments(session, turn, uploads)
+        if stream:
+            return _stream_conversation_turn(session, conversation)
+        result = await _run_conversation_turn(session, conversation)
+        return {
+            "chat_id": conversation.id,
+            "status": result["chat"]["status"].casefold(),
+            "session_id": conversation.id,
+            **result,
+        }
+    task = _scoped_task(session, chat_id, principal)
+    if not task or not task.is_chat:
+        raise HTTPException(404, "Chat not found")
+    if payload.model_name or payload.model_provider:
+        raise HTTPException(
+            422,
+            "Per-message model selection is supported for repository-free chats only",
+        )
+    if payload.attachments:
+        raise HTTPException(
+            422, "Attachments are currently supported in repository-free chats"
+        )
+    try:
+        result = await continue_durable_session(
+            session, chat_id, payload.content, None, principal
+        )
+    except SessionServiceError as exc:
+        raise HTTPException(exc.status_code, exc.detail) from exc
+    return {"chat_id": chat_id, **result}
+
+
+@app.get("/api/chats/{chat_id}/attachments/{attachment_id}")
+def get_chat_attachment(
+    chat_id: str,
+    attachment_id: str,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("read")),
+) -> Response:
+    attachment = session.get(ChatAttachment, attachment_id)
+    if not attachment:
+        raise HTTPException(404, "Chat attachment not found")
+    turn = session.get(ChatTurn, attachment.message_id)
+    conversation = session.get(
+        ChatConversation, turn.chat_id if turn else ""
+    )
+    if not conversation or conversation.id != chat_id:
+        raise HTTPException(404, "Chat attachment not found")
+    if conversation.organization_id != principal.organization_id:
+        raise HTTPException(404, "Chat attachment not found")
+    disposition = (
+        "inline" if attachment.media_type.startswith(("image/", "audio/")) else "attachment"
+    )
+    return Response(
+        content=attachment.data,
+        media_type=attachment.media_type,
+        headers={
+            "Content-Disposition": (
+                f"{disposition}; filename*=UTF-8''{quote(attachment.name, safe='')}"
+            ),
+            "X-Content-Type-Options": "nosniff",
+            "Cache-Control": "private, no-store",
+        },
+    )
+
+
+@app.post("/api/chats/transcribe")
+async def transcribe_chat_audio(
+    payload: ChatMessageCreate,
+    session: Session = Depends(get_session),
+    principal: Principal = Depends(require_permission("task.create")),
+) -> dict:
+    uploads = _decode_chat_uploads(payload.attachments)
+    if len(uploads) != 1 or not uploads[0][1].startswith("audio/"):
+        raise HTTPException(422, "Provide one audio attachment to transcribe")
+    try:
+        available_models = await list_runtime_models()
+    except RuntimeError as exc:
+        raise HTTPException(503, f"Chat model catalog unavailable: {exc}") from exc
+    model = next(
+        (
+            item for item in available_models
+            if item.get("name") == payload.model_name
+            and (
+                payload.model_provider is None
+                or item.get("provider") == payload.model_provider.casefold()
+            )
+        ),
+        None,
+    ) if payload.model_name else (available_models[0] if available_models else None)
+    if not model:
+        raise HTTPException(422, "The selected chat model is unavailable")
+    if model.get("provider") == "foundry-anthropic":
+        raise HTTPException(
+            422,
+            "Voice transcription is not supported by Microsoft Foundry Anthropic. "
+            "Choose a Foundry Responses model.",
+        )
+    name, media_type, data = uploads[0]
+    transcript, _ = await generate_chat_response(
+        messages=[AgentFrameworkMessage("user", [
+            Content.from_text("Transcribe the attached audio accurately. Return only the spoken words."),
+            Content.from_data(
+                data,
+                media_type,
+                additional_properties={"filename": name},
+            ),
+        ])],
+        instructions=(
+            "You are a speech transcription service. Return only the exact transcript. "
+            "Do not answer the recording, summarize it, or add commentary."
+        ),
+        model=str(model.get("name") or ""),
+        provider=str(model.get("provider") or ""),
+        enable_native_tools=False,
+    )
+    if not transcript.strip():
+        raise HTTPException(502, "The selected model returned an empty transcript")
+    return {"transcript": transcript.strip()}
 
 
 @app.get("/api/sessions/{task_id}")

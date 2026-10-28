@@ -1,6 +1,13 @@
-# Product and resilience stories
+---
+title: Product and resilience stories
+description: Implementation backlog for product adoption, environment isolation, and resilience assurance.
+---
 
 This backlog translates selected ideas from AutoDev/Xiuper and the current Autodev threat model into implementation-ready stories. It preserves Autodev's deterministic control plane: models may propose work, but policy, workflow scheduling, approvals, sandboxing, and evidence decisions remain outside the model.
+
+Use the [root README](../../README.md) and [local setup guide](../local-setup.md)
+for installation, development commands, and configuration. This directory is
+an implementation backlog, not a product or operator runbook.
 
 ## How to use this backlog
 
@@ -20,6 +27,16 @@ These stories adapt patterns rather than source code. AutoDev/Xiuper is MPL-2.0;
 | ADOPT-004 | [Repository intelligence map](ADOPT-004-repository-intelligence.md)                            |       P1 |       13 | ADOPT-001  |
 | ADOPT-005 | [Bounded specialist agents](ADOPT-005-bounded-specialist-agents.md)                            |       P1 |       13 | ADOPT-003  |
 | ADOPT-006 | [Thin IDE integration](ADOPT-006-thin-ide-integration.md)                                      |       P2 |        8 | ADOPT-003  |
+
+## Environment isolation epic
+
+The current local setup retains project-scoped workspace bind mounts. A separate
+VM-based mode is proposed for developers who do not want personal-machine folders
+or the personal-machine Docker daemon exposed to the environment.
+
+| ID          | Story                                                                    | Priority | Estimate | Depends on |
+| ----------- | ------------------------------------------------------------------------ | -------: | -------: | ---------- |
+| ISOLATE-001 | [Dedicated VM without host mounts](ISOLATE-001-dedicated-vm-isolation.md)   |       P1 |        8 | None       |
 
 ## Chaos and adversarial assurance epic
 

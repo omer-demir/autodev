@@ -1,4 +1,4 @@
-import type { AgentTelemetry, AuthUser, BehavioralEvaluationReadiness, Connector, ConnectorAccount, DashboardData, EvaluationArtifacts, EvaluationDataset, EvaluationDatasetPage, EvaluationEvent, EvaluationModelCatalog, EvaluationRun, EvidenceSummary, GatewayStatus, GitHubRepository, GovernanceOverview, OrganizationMember, Project, RegistryDefinition, RuntimeCapabilities, RuntimeStatus, Sandbox, SecurityOverview, SessionHistory, SessionSummary, Task, TaskChangeDiff, TaskChangesDirectory, TaskDetail, TaskObservability, TaskPage } from "./types";
+import type { AgentTelemetry, AuthUser, BehavioralEvaluationReadiness, ChatFollowUpResult, ChatOptions, ChatSession, ChatSessionSummary, ChatStartResult, Connector, ConnectorAccount, DashboardData, EvaluationArtifacts, EvaluationDataset, EvaluationDatasetPage, EvaluationEvent, EvaluationModelCatalog, EvaluationRun, EvidenceSummary, GatewayStatus, GitHubRepository, GovernanceOverview, OrganizationMember, Project, RegistryDefinition, RuntimeCapabilities, RuntimeStatus, Sandbox, SecurityOverview, SessionHistory, SessionSummary, Task, TaskDetail, TaskObservability, TaskPage } from "./types";
 
 // Native development stays same-origin through the Next.js /api rewrite. This avoids
 // remote-workspace localhost forwarding and browser CORS/connection failure modes.
@@ -51,6 +51,91 @@ async function call<T>(path: string, init?: RequestInit, timeoutMs = 15_000): Pr
   } finally {
     window.clearTimeout(timeout);
     init?.signal?.removeEventListener("abort", abort);
+  }
+}
+
+async function streamChat(
+  path: string,
+  body: unknown,
+  onDelta: (text: string) => void,
+): Promise<ChatSession> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), 300_000);
+  try {
+    let response: Response;
+    try {
+      response = await fetch(`${API_URL}${path}`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "text/event-stream",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+        cache: "no-store",
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new ApiError(`Request to ${path} timed out after 300s.`, path, "timeout");
+      }
+      throw new ApiError(`Cannot reach ${path}: ${error instanceof Error ? error.message : String(error)}`, path, "network");
+    }
+
+    if (!response.ok) {
+      const detail = (await response.text()).trim();
+      throw new ApiError(`${path} returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`, path, "http", response.status);
+    }
+    if (!response.headers.get("content-type")?.includes("text/event-stream")) {
+      return await response.json() as ChatSession;
+    }
+    if (!response.body) {
+      throw new ApiError(`The chat stream from ${path} has no response body.`, path, "network");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    let completed: ChatSession | null = null;
+    let streamError = "";
+    const consumeFrame = (frame: string) => {
+      let eventName = "message";
+      const data: string[] = [];
+      for (const line of frame.split(/\r?\n/)) {
+        if (line.startsWith("event:")) eventName = line.slice(6).trim();
+        else if (line.startsWith("data:")) data.push(line.slice(5).trimStart());
+      }
+      if (!data.length) return;
+      const payload = JSON.parse(data.join("\n")) as { text?: string; message?: string } & ChatSession;
+      if (eventName === "delta" && typeof payload.text === "string") {
+        onDelta(payload.text);
+      } else if (eventName === "complete") {
+        completed = payload;
+      } else if (eventName === "error") {
+        streamError = payload.message || "The chat response stream failed.";
+      }
+    };
+
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      let separator: RegExpExecArray | null;
+      while ((separator = /\r?\n\r?\n/.exec(buffer)) !== null) {
+        consumeFrame(buffer.slice(0, separator.index));
+        buffer = buffer.slice(separator.index + separator[0].length);
+      }
+      if (done) {
+        if (buffer.trim()) consumeFrame(buffer);
+        break;
+      }
+    }
+    if (streamError) throw new Error(streamError);
+    if (!completed) {
+      throw new ApiError(`The chat stream from ${path} ended without a completed response.`, path, "network");
+    }
+    return completed;
+  } finally {
+    window.clearTimeout(timeout);
   }
 }
 
@@ -108,6 +193,51 @@ export const api = {
   gateway: () => call<GatewayStatus>("/api/gateway"),
   sessions: () => call<SessionSummary[]>("/api/sessions"),
   session: (id: string) => call<SessionHistory>(`/api/sessions/${encodeURIComponent(id)}`),
+  chatOptions: () => call<ChatOptions>("/api/chats/options"),
+  chatSessions: async () => (await call<{ items: ChatSessionSummary[] }>("/api/chats?limit=50")).items,
+  chatSession: (id: string) => call<ChatSession>(`/api/chats/${encodeURIComponent(id)}`),
+  createChatSession: (body: {
+    message: string; project_id?: number; agent_ids?: string[]; skill_ids?: string[];
+    title?: string; model_name?: string | null; model_provider?: string | null;
+    approval_strategy: "agent_policy";
+    attachments?: { name: string; media_type: string; data: string }[];
+  }) => call<ChatStartResult>("/api/chats", {
+    method: "POST", body: JSON.stringify(body),
+  }, 120_000),
+  createChatSessionStreaming: (body: {
+    message: string; agent_ids?: string[]; skill_ids?: string[];
+    title?: string; model_name?: string | null; model_provider?: string | null;
+    approval_strategy: "agent_policy";
+    attachments?: { name: string; media_type: string; data: string }[];
+  }, onDelta: (text: string) => void) =>
+    streamChat("/api/chats?stream=true", body, onDelta),
+  sendChatMessage: (id: string, content: string, attachments: {
+    name: string; media_type: string; data: string;
+  }[] = [], model_name?: string | null, model_provider?: string | null) =>
+    call<ChatFollowUpResult>(`/api/chats/${encodeURIComponent(id)}/messages`, {
+      method: "POST", body: JSON.stringify({
+        content, attachments, model_name, model_provider,
+      }),
+    }, 120_000),
+  sendChatMessageStreaming: (id: string, content: string, attachments: {
+    name: string; media_type: string; data: string;
+  }[] = [], onDelta: (text: string) => void, model?: {
+    model_name?: string | null; model_provider?: string | null;
+  }) =>
+    streamChat(
+      `/api/chats/${encodeURIComponent(id)}/messages?stream=true`,
+      { content, attachments, ...model },
+      onDelta,
+    ),
+  transcribeChatAudio: (attachment: {
+    name: string; media_type: string; data: string;
+  }, model_name: string, model_provider: string) =>
+    call<{ transcript: string }>("/api/chats/transcribe", {
+      method: "POST",
+      body: JSON.stringify({
+        content: "", attachments: [attachment], model_name, model_provider,
+      }),
+    }, 120_000),
   continueSession: (id: string, content: string, agent_id?: string) =>
     call<{ status: string; session_id: string; agent_id: string }>(`/api/sessions/${encodeURIComponent(id)}/messages`, { method: "POST", body: JSON.stringify({ content, agent_id }) }),
   publishTask: (id: string, branch: string, create_pull_request: boolean) =>

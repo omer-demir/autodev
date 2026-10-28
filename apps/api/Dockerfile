@@ -1,9 +1,14 @@
 FROM node:22-bookworm-slim AS node-tools
-RUN npm install --global @microsoft/vally-cli@0.17.0 @github/copilot@1.0.85
+ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
+RUN apt-get update \
+	&& apt-get install -y --no-install-recommends g++ make python3 \
+	&& npm install --global @microsoft/vally-cli@0.17.0 @github/copilot@1.0.85 \
+	&& rm -rf /var/lib/apt/lists/*
 
 FROM docker:29-cli AS docker-tools
 
 FROM python:3.12-slim
+ARG PIP_INDEX_URL=https://packagefeedproxy.microsoft.io/pypi/simple/
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl git && rm -rf /var/lib/apt/lists/*
 COPY --from=docker-tools /usr/local/bin/docker /usr/local/bin/docker

@@ -112,6 +112,7 @@ def render_agent_system_prompt(
     max_tool_calls: int,
     max_shell_calls: int,
     runtime: str = "workbench",
+    additional_skills: list[str] | None = None,
 ) -> str:
     capabilities = sorted(str(item)
                           for item in definition.get("capabilities", []))
@@ -126,7 +127,13 @@ def render_agent_system_prompt(
         task_mode=task_mode,
         runtime=runtime,
         setup_instructions=str(environment.get("setup_instructions", "")),
-        extension_instructions=compose_agent_instructions(definition),
+        extension_instructions=compose_agent_instructions({
+            **definition,
+            "skills": list(dict.fromkeys([
+                *definition.get("skills", []),
+                *(additional_skills or []),
+            ])),
+        }),
         max_tool_calls=max_tool_calls,
         max_shell_calls=max_shell_calls,
     )

@@ -61,7 +61,7 @@ services:
       WORKBENCH_WORKSPACE_SNAPSHOT_PROVIDER: azure_blob
       WORKBENCH_WORKSPACE_SNAPSHOT_REQUIRED: "true"
       WORKBENCH_AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=autodev;AccountKey=YXV0b2Rldi1sb2NhbC1zdG9yYWdlLWtleS0zMmJ5dGVz;BlobEndpoint=http://azurite:10000/autodev;
-      WORKBENCH_DOCKER_WORKSPACE_HOST: ${PWD}/.workspaces
+      WORKBENCH_DOCKER_WORKSPACE_HOST: ${WORKBENCH_DOCKER_WORKSPACE_HOST:-${PWD}/.workspaces}
       WORKBENCH_EXECUTION_MODE: real
       WORKBENCH_GOVERNANCE_PROVIDER: ${WORKBENCH_GOVERNANCE_PROVIDER:-agent_os}
       WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER: ${WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER:-microsoft_agent_hypervisor}
@@ -81,7 +81,12 @@ services:
       WORKBENCH_SANDBOX_COMMAND_TIMEOUT_SECONDS: ${WORKBENCH_SANDBOX_COMMAND_TIMEOUT_SECONDS:-1800}
       WORKBENCH_SANDBOX_PROVIDER: ${WORKBENCH_SANDBOX_PROVIDER:-docker}
       WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT: ${WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT:-}
-      WORKBENCH_FOUNDRY_MODEL: ${WORKBENCH_FOUNDRY_MODEL:-gpt-5.4-mini}
+      WORKBENCH_FOUNDRY_MODEL: ${WORKBENCH_FOUNDRY_MODEL:-gpt-6-sol}
+      WORKBENCH_FOUNDRY_MODELS: ${WORKBENCH_FOUNDRY_MODELS:-}
+      WORKBENCH_FOUNDRY_ANTHROPIC_ENDPOINT: ${WORKBENCH_FOUNDRY_ANTHROPIC_ENDPOINT:-}
+      WORKBENCH_FOUNDRY_ANTHROPIC_MODEL: ${WORKBENCH_FOUNDRY_ANTHROPIC_MODEL:-}
+      WORKBENCH_FOUNDRY_ANTHROPIC_MODELS: ${WORKBENCH_FOUNDRY_ANTHROPIC_MODELS:-}
+      WORKBENCH_FOUNDRY_IMAGE_GENERATION_DEPLOYMENT: ${WORKBENCH_FOUNDRY_IMAGE_GENERATION_DEPLOYMENT:-}
       WORKBENCH_MODEL_PRICING_JSON: '${WORKBENCH_MODEL_PRICING_JSON:-{}}'
       WORKBENCH_COPILOT_HOME: /data/copilot
       COPILOT_HOME: /data/copilot
@@ -104,7 +109,16 @@ services:
       WORKBENCH_OTEL_SERVICE_NAME: autodev-api
     volumes:
       - workbench-data:/data
-      - ${PWD}/.workspaces:/workspaces
+      - type: bind
+        source: ${WORKBENCH_DOCKER_WORKSPACE_HOST:-${PWD}/.workspaces}
+        target: /workspaces
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WORKBENCH_DOCKER_WORKSPACE_HOST:-${PWD}/.workspaces}/.agentmesh
+        target: /data/agentmesh
+        bind:
+          create_host_path: false
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts: ["host.docker.internal:host-gateway"]
     healthcheck:
@@ -135,7 +149,7 @@ services:
       WORKBENCH_WORKSPACE_SNAPSHOT_PROVIDER: azure_blob
       WORKBENCH_WORKSPACE_SNAPSHOT_REQUIRED: "true"
       WORKBENCH_AZURE_STORAGE_CONNECTION_STRING: DefaultEndpointsProtocol=http;AccountName=autodev;AccountKey=YXV0b2Rldi1sb2NhbC1zdG9yYWdlLWtleS0zMmJ5dGVz;BlobEndpoint=http://azurite:10000/autodev;
-      WORKBENCH_DOCKER_WORKSPACE_HOST: ${PWD}/.workspaces
+      WORKBENCH_DOCKER_WORKSPACE_HOST: ${WORKBENCH_DOCKER_WORKSPACE_HOST:-${PWD}/.workspaces}
       WORKBENCH_EXECUTION_MODE: real
       WORKBENCH_GOVERNANCE_PROVIDER: ${WORKBENCH_GOVERNANCE_PROVIDER:-agent_os}
       WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER: ${WORKBENCH_RUNTIME_SUPERVISOR_PROVIDER:-microsoft_agent_hypervisor}
@@ -144,6 +158,13 @@ services:
       WORKBENCH_OLLAMA_URL: http://host.docker.internal:11434
       WORKBENCH_MODEL_NAME: ${WORKBENCH_MODEL_NAME:-auto}
       WORKBENCH_MODEL_FALLBACK_NAME: ${WORKBENCH_MODEL_FALLBACK_NAME:-gemma4:e2b}
+      WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT: ${WORKBENCH_FOUNDRY_RESPONSES_ENDPOINT:-}
+      WORKBENCH_FOUNDRY_MODEL: ${WORKBENCH_FOUNDRY_MODEL:-gpt-6-sol}
+      WORKBENCH_FOUNDRY_MODELS: ${WORKBENCH_FOUNDRY_MODELS:-}
+      WORKBENCH_FOUNDRY_ANTHROPIC_ENDPOINT: ${WORKBENCH_FOUNDRY_ANTHROPIC_ENDPOINT:-}
+      WORKBENCH_FOUNDRY_ANTHROPIC_MODEL: ${WORKBENCH_FOUNDRY_ANTHROPIC_MODEL:-}
+      WORKBENCH_FOUNDRY_ANTHROPIC_MODELS: ${WORKBENCH_FOUNDRY_ANTHROPIC_MODELS:-}
+      WORKBENCH_FOUNDRY_IMAGE_GENERATION_DEPLOYMENT: ${WORKBENCH_FOUNDRY_IMAGE_GENERATION_DEPLOYMENT:-}
       WORKBENCH_COPILOT_HOME: /data/copilot
       COPILOT_HOME: /data/copilot
       COPILOT_GITHUB_TOKEN: ${COPILOT_GITHUB_TOKEN:-}
@@ -162,7 +183,16 @@ services:
       WORKBENCH_OTEL_SERVICE_NAME: autodev-worker
     volumes:
       - workbench-data:/data
-      - ${PWD}/.workspaces:/workspaces
+      - type: bind
+        source: ${WORKBENCH_DOCKER_WORKSPACE_HOST:-${PWD}/.workspaces}
+        target: /workspaces
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${WORKBENCH_DOCKER_WORKSPACE_HOST:-${PWD}/.workspaces}/.agentmesh
+        target: /data/agentmesh
+        bind:
+          create_host_path: false
       - /var/run/docker.sock:/var/run/docker.sock
     extra_hosts: ["host.docker.internal:host-gateway"]
     depends_on:

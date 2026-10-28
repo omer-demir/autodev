@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from sqlalchemy import Column, JSON
 from sqlmodel import Field, SQLModel
 
 from ..common import now
@@ -18,6 +19,14 @@ class Task(SQLModel, table=True):
     agent_id: str = "did:local:developer"
     branch: str = "feature/agent-task"
     model_name: str | None = None
+    selected_agents: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    additional_skills: list[str] = Field(
+        default_factory=list, sa_column=Column(JSON, nullable=False)
+    )
+    is_chat: bool = False
+    approval_strategy: str = "agent_policy"
     mode: str = "change"
     verbose_logging: bool = False
     organization_id: str = Field(default="local", index=True)

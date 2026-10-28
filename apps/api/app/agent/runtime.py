@@ -295,6 +295,7 @@ class AgentRuntime:
         steering_provider: SteeringProvider | None = None,
         model_recovery: ModelRecovery | None = None,
         model_provider: str | None = None,
+        additional_skills: list[str] | None = None,
     ) -> str:
         definition = get_definition(
             "agents", agent_id.removeprefix("did:local:")
@@ -344,6 +345,7 @@ class AgentRuntime:
             task_mode=task_mode,
             max_tool_calls=max_tool_calls,
             max_shell_calls=max_shell_calls,
+            additional_skills=additional_skills,
         )
         prompt = render_prompt(
             "coding-task",
@@ -401,8 +403,10 @@ class AgentRuntime:
                 endpoint=self.settings.foundry_responses_endpoint,
                 model=selected_model,
                 reasoning_summary=self.settings.foundry_reasoning_summary,
-                tool_schemas=foundry_tool_schemas(
-                    resolve_agent_harness(agent_id)),
+                tool_schemas=[
+                    {"type": "web_search"},
+                    *foundry_tool_schemas(resolve_agent_harness(agent_id)),
+                ],
             ).run(
                 instructions=instructions,
                 prompt=prompt,

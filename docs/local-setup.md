@@ -1,4 +1,7 @@
-# Local setup
+---
+title: Local setup
+description: Configure native development, Docker Compose, and local provider connections.
+---
 
 ## Native development
 
@@ -13,9 +16,54 @@ Redis Streams carries realtime event invalidations. It stops Compose API, web,
 and worker containers first so two control planes or workers do not compete.
 When VS Code runs in the included Docker-outside-of-Docker dev container,
 `make dev` joins that container to the Compose `control` network. Set the
-database and Redis hosts to `postgres` and `redis` in the dev container's
-`.env`; use the published `127.0.0.1` ports when running the apps directly on
-the Docker host.
+database and Redis hosts to `127.0.0.1` in `.env`; `make dev` automatically
+uses the `postgres` and `redis` service names from inside the dev container.
+Compose and native development share agent identity signing keys through
+`.workspaces/.agentmesh` so they remain consistent with the shared database.
+The workspace setup detects the host checkout path from the dev container's
+Docker bind mount and saves it to `.env`; it does not need to be set in
+`devcontainer.json`.
+
+### Project-scoped Docker file sharing
+
+Before running Compose directly, prepare the task directory and its host mapping:
+
+```bash
+make docker-workspace
+docker compose up -d --build
+```
+
+`make platform-up`, `make platform-scale`, `make dev`, and dev-container creation
+run the setup automatically. It creates `.workspaces/.agentmesh` and saves
+`WORKBENCH_DOCKER_WORKSPACE_HOST` in the ignored `.env` file, preserving other
+settings. Re-running setup refreshes that setting if the checkout moves.
+An explicitly exported `WORKBENCH_DOCKER_WORKSPACE_HOST` takes precedence;
+unset an outdated export before re-running setup.
+
+Inside a dev container, setup detects the host source of the workspace bind
+mount instead of using the container-only `/workspaces/...` path. On a native
+Mac or Linux checkout, it uses the local project path. If container inspection
+is unavailable, setup fails with guidance to configure the mapping explicitly;
+it does not guess a host path.
+
+If Docker Desktop reports `Mounts denied`, add only the exact directory printed
+by setup under **Settings > Resources > File sharing**, then apply the change
+and retry Compose. For example, share
+`/Users/you/projects/autodev/.workspaces`, not `/Users/you` or `/`.
+Docker Desktop approval cannot be granted by this setup script.
+
+API and worker containers mount that task directory and its `.agentmesh`
+subdirectory. Missing bind sources fail rather than being created at an
+incorrect host path. Other application data uses Docker-managed volumes, and
+observability configuration is built into images.
+
+This limits Compose workspace sharing, not all development-environment access:
+the dev container still mounts the source checkout and host SSH directory, and
+the control plane uses the Docker socket. Task sandboxes do not receive that
+socket. See the proposed [dedicated VM isolation story](stories/ISOLATE-001-dedicated-vm-isolation.md)
+for a separate environment without personal-host folder mounts.
+
+### Model providers
 
 The default is real local mode with GitHub Copilot first and Ollama as a fallback. For Compose, set `COPILOT_GITHUB_TOKEN` to a token with Copilot access, or authenticate the Copilot CLI using the persistent `WORKBENCH_COPILOT_HOME`. For Ollama fallback, use `http://127.0.0.1:11434` when the API runs directly on the host and `http://host.docker.internal:11434` in Compose.
 
@@ -34,7 +82,7 @@ Paste a URL such as `https://github.com/owner/repository` to connect a public re
 
 ## GitHub App integration
 
-The recommended integration is created from the **Connections** page. It removes the need to manually copy GitHub App values into `.env`, mount users' SSH directories for HTTPS transport, or share personal access tokens. GitHub attributes installation-token API operations to `<app-slug>[bot]`; AutoDev separately records the task requester and publication approver in the PR body and audit events.
+The recommended integration is created from the **Connections** page. It removes the need to manually copy GitHub App values into `.env`, mount users' SSH directories for HTTPS transport, or share personal access tokens. GitHub attributes installation-token API operations to `<app-slug>[bot]`; AutoDev separately records the task requester and publication approver in its audit events.
 
 1. Open **Connections → Create connection** and select GitHub.
 2. Enter a friendly connection name. AutoDev adds a random suffix to the GitHub App registration because GitHub App names are globally unique across GitHub. Optionally enter a GitHub organization when the organization, rather than your personal account, should own the private app.
@@ -53,7 +101,7 @@ Repositories can be removed from **Repositories**. Removal permanently deletes e
 
 GitHub callbacks use `WORKBENCH_WEB_APP_URL` with an `/api/...` path so browser authentication and state cookies remain on one origin. Keep the web application's `/api` proxy enabled. Do not mix `localhost` and `127.0.0.1` in the browser-facing URL: browsers treat them as different cookie hosts.
 
-Commits use `<app-slug>[bot]` and GitHub's bot noreply address. Commit trailers include the AutoDev task and requester. Pull-request bodies include the task, requester, approving user, and agent. This gives GitHub a stable automation identity while preserving human accountability in AutoDev.
+Commits use `<app-slug>[bot]` and GitHub's bot noreply address. AutoDev generates a concise commit subject from the staged diff and creates pull-request descriptions from change and validation evidence. Descriptions omit the original task message and changed-file lists; GitHub already displays the files. Requester and approver identity remain in AutoDev's audit events.
 
 For deployment-managed compatibility, the `WORKBENCH_GITHUB_APP_ID`, `WORKBENCH_GITHUB_APP_SLUG`, `WORKBENCH_GITHUB_APP_CLIENT_ID`, `WORKBENCH_GITHUB_APP_CLIENT_SECRET`, and private-key settings remain supported. New installations should use the database-backed Connections flow.
 

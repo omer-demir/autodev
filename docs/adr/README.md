@@ -1,4 +1,7 @@
-# Architecture decision records
+---
+title: Architecture decision records
+description: Index of AutoDev architecture decision records and their scope.
+---
 
 These records capture Autodev's non-obvious technical landscape choices. They intentionally omit ordinary implementation-language and infrastructure-language selections such as Python or Bicep. Each ADR describes a durable boundary or a choice whose reversal would change product semantics, security posture, data ownership, or operations.
 

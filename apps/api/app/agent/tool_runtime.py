@@ -69,6 +69,21 @@ def _tool_request_summary(name: str, arguments: dict[str, Any]) -> str:
         pattern = str(arguments.get("pattern") or "*")[:120]
         return f"Path: {path} · pattern {pattern}"
     return "Governed workspace tool request"
+def _tool_attempt(name: str, arguments: dict[str, Any]) -> str:
+    if name == "run_command":
+        command = arguments.get("arguments")
+        if isinstance(command, list):
+            return f"Command: {shlex.join([str(item) for item in command])}"
+        return "Command: unavailable"
+    details = []
+    for key in ("path", "pattern", "query", "offset", "limit", "max_matches"):
+        value = arguments.get(key)
+        if value is not None:
+            details.append(f"{key}={str(value)[:200]}")
+    if name == "write_file" and "content" in arguments:
+        content = str(arguments["content"])
+        details.append(f"content_bytes={len(content.encode('utf-8'))}")
+    return f"Tool: {name}" + (f" · {', '.join(details)}" if details else "")
 
 
 @dataclass
@@ -106,6 +121,26 @@ class ToolRuntime:
                 raise RuntimeError(
                     f"Agent exceeded the policy limit of {self.max_shell_invocations} shell invocations"
                 )
+        attempt = _tool_attempt(name, arguments)
+        attempted_command = (
+            attempt.removeprefix("Command: ")
+            if name == "run_command"
+            else None
+        )
+        await self.callback(
+            "tool.requested",
+            name,
+            attempt,
+            "info",
+            {
+                "tool": name,
+                "attempt": attempt,
+                **(
+                    {"attempted_command": attempted_command}
+                    if attempted_command is not None else {}
+                ),
+            },
+        )
         started = time.monotonic()
         tools = self.tool_definitions or resolved_tools(
             resolve_agent_harness(self.agent_id))
@@ -134,9 +169,15 @@ class ToolRuntime:
             await self.callback(
                 "tool.denied",
                 f"{resolved_name} denied by governance boundary",
-                "Only governed test, build, dependency, and read-only Git commands are allowed",
+                f"Tool: {name}\n{attempt}\nOnly governed test, build, dependency, and read-only Git commands are allowed",
                 "error",
-                {**request_data, "capability": None, "decision": "DENY"},
+                {
+                    "tool": name,
+                    "attempt": attempt,
+                    "attempted_command": attempted_command,
+                    "capability": None,
+                    "decision": "DENY",
+                },
             )
             raise ValueError(
                 "Command is outside the governed test/build/dependency/read-only Git allowlist"
@@ -147,14 +188,15 @@ class ToolRuntime:
         await self.callback(
             "tool.allowed" if decision.decision == Decision.ALLOW else "tool.denied",
             f"{capability} {decision.decision}",
-            decision.reason,
+            f"Tool: {name}\n{attempt}\n{decision.reason}" if decision.decision != Decision.ALLOW
+            else decision.reason,
             "info" if decision.decision == Decision.ALLOW else "error",
-            {
-                **request_data,
-                "capability": capability,
-                "decision": decision.decision,
-                "policy": decision.policy,
-            },
+            {"capability": capability, "decision": decision.decision,
+                "policy": decision.policy, "tool": name, "attempt": attempt,
+                **(
+                    {"attempted_command": attempted_command}
+                    if attempted_command is not None else {}
+                )},
         )
         if decision.decision != Decision.ALLOW:
             raise PermissionError(decision.reason)
@@ -169,13 +211,19 @@ class ToolRuntime:
             denied = exc.decision
             await self.callback(
                 "runtime_supervision.denied",
-                f"{resolved_name} denied by runtime supervisor",
-                denied.reason,
+                f"{capability} denied by runtime supervisor",
+                f"Tool: {name}\n{attempt}\n{denied.reason}",
                 "error",
                 {
                     **request_data,
                     "provider": denied.provider,
                     "capability": capability,
+                    "tool": name,
+                    "attempt": attempt,
+                    **(
+                        {"attempted_command": attempted_command}
+                        if attempted_command is not None else {}
+                    ),
                     "agent_tier": denied.agent_tier.value,
                     "required_tier": denied.required_tier.value,
                     **denied.evidence,

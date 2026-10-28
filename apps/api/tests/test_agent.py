@@ -261,7 +261,7 @@ async def test_tool_runtime_records_unclassified_command_denial(tmp_path):
     events = []
 
     async def callback(event_type, title, detail, severity, data):
-        events.append((event_type, data))
+        events.append((event_type, title, detail, data))
 
     runtime = ToolRuntime(
         task_id="TASK-1", agent_id="did:local:developer", workspace=tmp_path,
@@ -272,18 +272,18 @@ async def test_tool_runtime_records_unclassified_command_denial(tmp_path):
     with pytest.raises(ValueError, match="outside the governed"):
         await runtime.execute("run_command", {"arguments": ["bash", "-lc", "cat README.md"]})
 
-    assert events[-1] == (
-        "tool.denied",
-        {
-            "tool": "run_command",
-            "tool_description": (
-                "Run a governed argument-vector test, build, dependency, or Git command."
-            ),
-            "request_summary": "Command: bash -lc 'cat README.md'",
-            "capability": None,
-            "decision": "DENY",
-        },
-    )
+    event_type, title, detail, data = events[-1]
+    assert event_type == "tool.denied"
+    assert title == "Command denied by governance boundary"
+    assert "Tool: run_command" in detail
+    assert "Command: bash -lc 'cat README.md'" in detail
+    assert data == {
+        "tool": "run_command",
+        "attempt": "Command: bash -lc 'cat README.md'",
+        "attempted_command": "bash -lc 'cat README.md'",
+        "capability": None,
+        "decision": "DENY",
+    }
 
 
 @pytest.mark.asyncio

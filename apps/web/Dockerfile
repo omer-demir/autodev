@@ -1,4 +1,5 @@
 FROM node:22-alpine AS build
+ARG NPM_CONFIG_REGISTRY=https://packagefeedproxy.microsoft.io/npm/
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/package.json

@@ -1,6 +1,7 @@
 .env
 .env.*
 !.env.example
+.copilot.env
 
 .next/
 node_modules/
